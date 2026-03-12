@@ -57,7 +57,35 @@ async function uploadToS3(url: string, fileData: Uint8Array, contentType: string
 	}
 }
 
+function htmlToText(html: string): string {
+	return html
+		// Remove <style> and <script> blocks entirely (tags + content)
+		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+		// Convert block elements to newlines before stripping
+		.replace(/<h[1-3][^>]*>/gi, "\n## ")
+		.replace(/<\/h[1-6]>/gi, "\n")
+		.replace(/<(p|div|li|tr|br\s?\/?)[^>]*>/gi, "\n")
+		.replace(/<\/?(ul|ol|table|thead|tbody)[^>]*>/gi, "\n")
+		// Strip all remaining tags
+		.replace(/<[^>]+>/g, "")
+		// Decode common HTML entities
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/&nbsp;/g, " ")
+		// Collapse multiple blank lines
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 async function generatePdfFromText(title: string, content: string): Promise<Uint8Array> {
+	// Strip HTML if the content looks like an HTML document
+	if (/<html[\s>]/i.test(content) || /<!doctype\s+html/i.test(content)) {
+		content = htmlToText(content);
+	}
 	const pdfDoc = await PDFDocument.create();
 	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 	const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
