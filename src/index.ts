@@ -274,6 +274,105 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 		);
 
+		// List all itineraries
+		this.server.tool(
+			"list_itineraries",
+			"List all Vamoos itineraries for the operator. Returns a summary of all trips including reference codes, dates, and vamoos_ids.",
+			{
+				page: z
+					.number()
+					.int()
+					.min(1)
+					.optional()
+					.describe("Page number for pagination (default: 1)"),
+				per_page: z
+					.number()
+					.int()
+					.min(1)
+					.max(100)
+					.optional()
+					.describe("Number of results per page (default: 50, max: 100)"),
+			},
+			async ({ page = 1, per_page = 50 }) => {
+				const params = new URLSearchParams({
+					page: String(page),
+					per_page: String(per_page),
+				});
+
+				const response = await fetch(
+					`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}?${params}`,
+					{
+						method: "GET",
+						headers: {
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+					},
+				);
+
+				const data = await response.json();
+
+				if (!response.ok) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}`,
+							},
+						],
+					};
+				}
+
+				return {
+					content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+				};
+			},
+		);
+
+		// Get a single itinerary by reference code
+		this.server.tool(
+			"get_itinerary",
+			"Retrieve a single Vamoos itinerary by its reference code (Passcode). Returns full details including vamoos_id, dates, background, documents, and all fields.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("The reference code (Passcode) of the itinerary to retrieve"),
+			},
+			async ({ reference_code }) => {
+				const response = await fetch(
+					`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+					{
+						method: "GET",
+						headers: {
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+					},
+				);
+
+				const data = await response.json();
+
+				if (!response.ok) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}`,
+							},
+						],
+					};
+				}
+
+				return {
+					content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+				};
+			},
+		);
+
 		// Upload a background image to an itinerary
 		this.server.tool(
 			"upload_background_image",
