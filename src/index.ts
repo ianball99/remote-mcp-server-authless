@@ -15,6 +15,15 @@ function base64ToBytes(base64: string): Uint8Array {
 	return bytes;
 }
 
+async function safeJson(response: Response): Promise<unknown> {
+	const text = await response.text();
+	try {
+		return JSON.parse(text);
+	} catch {
+		return text;
+	}
+}
+
 async function getS3UploadUrl(
 	filename: string,
 	contentType: string,
@@ -31,10 +40,10 @@ async function getS3UploadUrl(
 		body: JSON.stringify({ filename, content_type: contentType }),
 	});
 	if (!response.ok) {
-		const data = await response.json();
+		const data = await safeJson(response);
 		throw new Error(`Failed to get S3 upload URL: ${JSON.stringify(data)}`);
 	}
-	return response.json() as Promise<{ url: string; s3url: string }>;
+	return safeJson(response) as Promise<{ url: string; s3url: string }>;
 }
 
 async function uploadToS3(url: string, fileData: Uint8Array, contentType: string): Promise<void> {
@@ -179,7 +188,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			},
 		);
 
-		const vData = await vResponse.json();
+		const vData = await safeJson(vResponse);
 		return new Response(JSON.stringify({ ok: vResponse.ok, s3url, data: vData }), {
 			status: vResponse.ok ? 200 : vResponse.status,
 			headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
@@ -247,7 +256,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					},
 				);
 
-				const data = await response.json();
+				const data = await safeJson(response);
 
 				if (!response.ok) {
 					return {
@@ -318,7 +327,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					},
 				);
 
-				const data = await response.json();
+				const data = await safeJson(response);
 
 				if (!response.ok) {
 					return {
@@ -374,7 +383,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					},
 				);
 
-				const data = await response.json();
+				const data = await safeJson(response);
 
 				if (!response.ok) {
 					return {
@@ -417,7 +426,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					},
 				);
 
-				const data = await response.json();
+				const data = await safeJson(response);
 
 				if (!response.ok) {
 					return {
@@ -496,7 +505,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						},
 					);
 
-					const data = await response.json();
+					const data = await safeJson(response);
 
 					if (!response.ok) {
 						return {
@@ -579,7 +588,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						},
 					);
 
-					const data = await response.json();
+					const data = await safeJson(response);
 
 					if (!response.ok) {
 						return {
@@ -665,7 +674,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						},
 					);
 
-					const data = await response.json();
+					const data = await safeJson(response);
 
 					if (!response.ok) {
 						return {
