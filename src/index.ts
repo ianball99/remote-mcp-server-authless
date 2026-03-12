@@ -610,7 +610,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a document to an itinerary
 		this.server.tool(
 			"upload_document",
-			"Upload a document to a Vamoos itinerary's travel documents. Provide the file as base64-encoded data.",
+			"Upload a document to a Vamoos itinerary's travel documents. Provide the file as base64-encoded data. IMPORTANT: If you want to upload a PDF itinerary you wrote as text, use generate_and_upload_pdf instead — this tool is for uploading pre-existing binary files only.",
 			{
 				reference_code: z
 					.string()
@@ -644,9 +644,22 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 			async ({ reference_code, vamoos_id, departure_date, return_date, file_data, filename, content_type, document_name }) => {
 				try {
+					let fileBytes = base64ToBytes(file_data);
+
+					// If the caller claims this is a PDF but the bytes aren't a real PDF
+					// (e.g. Claude passed base64-encoded text/HTML), auto-convert to a proper PDF.
+					const isPdf = content_type === "application/pdf";
+					const hasPdfHeader = fileBytes.length > 4 &&
+						fileBytes[0] === 0x25 && fileBytes[1] === 0x50 &&
+						fileBytes[2] === 0x44 && fileBytes[3] === 0x46; // %PDF
+					if (isPdf && !hasPdfHeader) {
+						const text = new TextDecoder().decode(fileBytes);
+						fileBytes = await generatePdfFromText(document_name, text);
+					}
+
 					const { url, s3url } = await getS3UploadUrl(filename, content_type, this.env.VAMOOS_API_TOKEN);
 
-					await uploadToS3(url, base64ToBytes(file_data), content_type);
+					await uploadToS3(url, fileBytes, content_type);
 
 					const response = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
