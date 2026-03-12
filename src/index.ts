@@ -47,6 +47,88 @@ async function uploadToS3(url: string, fileData: Uint8Array, contentType: string
 	}
 }
 
+const CORS_HEADERS = {
+	"Access-Control-Allow-Origin": "*",
+	"Access-Control-Allow-Methods": "POST, OPTIONS",
+	"Access-Control-Allow-Headers": "Content-Type",
+} as const;
+
+async function handleUpload(request: Request, env: Env): Promise<Response> {
+	if (request.method !== "POST") {
+		return new Response(JSON.stringify({ error: "Method not allowed" }), {
+			status: 405,
+			headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+		});
+	}
+	try {
+		const formData = await request.formData();
+		const file = formData.get("file") as File | null;
+		if (!file) {
+			return new Response(JSON.stringify({ error: "No file provided" }), {
+				status: 400,
+				headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+			});
+		}
+
+		const vamoosId = Number(formData.get("vamoos_id") || 0);
+		const referenceCode = String(formData.get("reference_id") || formData.get("reference_code") || "");
+		const departureDate = String(formData.get("departure_date") || "");
+		const returnDate = String(formData.get("return_date") || "");
+		const filename = String(formData.get("image_filename") || file.name);
+		const contentType = String(formData.get("image_content_type") || file.type || "application/octet-stream");
+		const uploadType = String(formData.get("upload_type") || "background");
+		const documentName = String(formData.get("document_name") || "Document");
+
+		if (!referenceCode || !departureDate || !returnDate) {
+			return new Response(
+				JSON.stringify({ error: "Missing required fields: reference_id, departure_date, return_date" }),
+				{ status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+			);
+		}
+
+		const { url, s3url } = await getS3UploadUrl(filename, contentType, env.VAMOOS_API_TOKEN);
+		const fileData = new Uint8Array(await file.arrayBuffer());
+		await uploadToS3(url, fileData, contentType);
+
+		const itineraryBody: Record<string, unknown> = {
+			vamoos_id: vamoosId,
+			departure_date: departureDate,
+			return_date: returnDate,
+		};
+
+		if (uploadType === "document") {
+			itineraryBody.documents = { travel: [{ file_url: s3url, name: documentName }] };
+		} else {
+			itineraryBody.background = { file_url: s3url, name: "Background Image" };
+		}
+
+		const vResponse = await fetch(
+			`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json",
+					"X-Operator-Code": OPERATOR_CODE,
+					"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+				},
+				body: JSON.stringify(itineraryBody),
+			},
+		);
+
+		const vData = await vResponse.json();
+		return new Response(JSON.stringify({ ok: vResponse.ok, s3url, data: vData }), {
+			status: vResponse.ok ? 200 : vResponse.status,
+			headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+		});
+	} catch (err) {
+		return new Response(
+			JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+			{ status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+		);
+	}
+}
+
 export class VamoosMCP extends McpAgent<Env> {
 	server = new McpServer({
 		name: "Vamoos Itinerary Manager",
@@ -365,6 +447,13 @@ export default {
 
 		if (url.pathname === "/mcp") {
 			return VamoosMCP.serve("/mcp").fetch(request, env, ctx);
+		}
+
+		if (url.pathname === "/upload") {
+			if (request.method === "OPTIONS") {
+				return new Response(null, { status: 204, headers: CORS_HEADERS });
+			}
+			return handleUpload(request, env);
 		}
 
 		return new Response("Not found", { status: 404 });
