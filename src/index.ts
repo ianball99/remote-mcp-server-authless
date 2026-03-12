@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { z } from "zod";
 
 const VAMOOS_BASE_URL = "https://live.vamoos.com/v3";
@@ -45,6 +46,68 @@ async function uploadToS3(url: string, fileData: Uint8Array, contentType: string
 	if (!response.ok) {
 		throw new Error(`S3 upload failed with status ${response.status}`);
 	}
+}
+
+async function generatePdfFromText(title: string, content: string): Promise<Uint8Array> {
+	const pdfDoc = await PDFDocument.create();
+	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+	const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+	const pageWidth = 595;
+	const pageHeight = 842;
+	const marginX = 50;
+	const marginY = 50;
+	const contentWidth = pageWidth - 2 * marginX;
+
+	let page = pdfDoc.addPage([pageWidth, pageHeight]);
+	let y = pageHeight - marginY;
+
+	const titleSize = 16;
+	page.drawText(title, { x: marginX, y: y - titleSize, size: titleSize, font: boldFont, color: rgb(0, 0, 0) });
+	y -= titleSize + 6;
+	page.drawLine({ start: { x: marginX, y }, end: { x: pageWidth - marginX, y }, thickness: 0.5, color: rgb(0.5, 0.5, 0.5) });
+	y -= 14;
+
+	const bodySize = 10;
+	const lineHeight = bodySize * 1.6;
+	const headingSize = 12;
+
+	const drawLine = (text: string, size: number, f: typeof font) => {
+		if (y - size < marginY) {
+			page = pdfDoc.addPage([pageWidth, pageHeight]);
+			y = pageHeight - marginY;
+		}
+		if (text) page.drawText(text, { x: marginX, y, size, font: f, color: rgb(0, 0, 0) });
+		y -= size * 1.6;
+	};
+
+	for (const rawLine of content.split("\n")) {
+		const isHeading = /^#{1,3}\s/.test(rawLine);
+		const lineText = rawLine.replace(/^#{1,3}\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1");
+		const size = isHeading ? headingSize : bodySize;
+		const f = isHeading ? boldFont : font;
+
+		if (!lineText.trim()) {
+			y -= lineHeight * 0.5;
+			continue;
+		}
+
+		// Word-wrap
+		const words = lineText.split(" ");
+		let current = "";
+		for (const word of words) {
+			const test = current ? `${current} ${word}` : word;
+			if (f.widthOfTextAtSize(test, size) > contentWidth && current) {
+				drawLine(current, size, f);
+				current = word;
+			} else {
+				current = test;
+			}
+		}
+		if (current) drawLine(current, size, f);
+	}
+
+	return pdfDoc.save();
 }
 
 const CORS_HEADERS = {
@@ -428,6 +491,89 @@ export class VamoosMCP extends McpAgent<Env> {
 								background: {
 									file_url: s3url,
 									name: "Background Image",
+								},
+							}),
+						},
+					);
+
+					const data = await response.json();
+
+					if (!response.ok) {
+						return {
+							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}` }],
+						};
+					}
+
+					return {
+						content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+					};
+				} catch (err) {
+					return {
+						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+					};
+				}
+			},
+		);
+
+		// Generate a PDF from text and upload it as a travel document
+		this.server.tool(
+			"generate_and_upload_pdf",
+			"Generate a PDF from plain text content and upload it as a travel document to a Vamoos itinerary. Use this instead of upload_document when you want to create a PDF itinerary — pass the itinerary text directly and a proper PDF will be generated server-side.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("Reference code (Passcode) of the itinerary"),
+				vamoos_id: z
+					.number()
+					.int()
+					.describe("The vamoos_id of the itinerary"),
+				departure_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Departure date (YYYY-MM-DD)"),
+				return_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Return date (YYYY-MM-DD)"),
+				title: z
+					.string()
+					.describe("Title displayed at the top of the PDF (e.g. 'Rome Trip Itinerary')"),
+				content: z
+					.string()
+					.describe("Plain text or markdown content of the itinerary. Supports # headings and **bold** text."),
+				filename: z
+					.string()
+					.optional()
+					.describe("Filename for the PDF (default: itinerary.pdf)"),
+				document_name: z
+					.string()
+					.describe("Display name shown in the app (e.g. Travel Itinerary)"),
+			},
+			async ({ reference_code, vamoos_id, departure_date, return_date, title, content, filename = "itinerary.pdf", document_name }) => {
+				try {
+					const pdfBytes = await generatePdfFromText(title, content);
+
+					const { url, s3url } = await getS3UploadUrl(filename, "application/pdf", this.env.VAMOOS_API_TOKEN);
+					await uploadToS3(url, pdfBytes, "application/pdf");
+
+					const response = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify({
+								vamoos_id,
+								departure_date,
+								return_date,
+								documents: {
+									travel: [{ file_url: s3url, name: document_name }],
 								},
 							}),
 						},
