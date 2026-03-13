@@ -535,7 +535,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload AI-written markdown content as a PDF document to an itinerary
 		this.server.tool(
 			"upload_created_itinerary_document",
-			"Use this tool when YOU (the assistant) are writing the content of a document to attach to a Vamoos trip. Write the full content as plain markdown — use # for the main title, ## for section headings, **bold** for emphasis, and - for bullet points. Do NOT write HTML. The server converts the markdown to a styled PDF and attaches it to the trip.",
+			"ALWAYS use this tool when YOU (the assistant) are generating or writing any document content to attach to a Vamoos trip — for example itineraries, welcome letters, or information packs. Do NOT use upload_document for this purpose. Write the full content as plain markdown — use # for the main title, ## for section headings, **bold** for emphasis, and - for bullet points. Do NOT write HTML. The server converts the markdown to a styled PDF and attaches it to the trip.",
 			{
 				reference_code: z
 					.string()
@@ -611,7 +611,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a document to an itinerary — supports both HTML→PDF conversion and binary file upload
 		this.server.tool(
 			"upload_document",
-			"Upload a document to a Vamoos itinerary. Two modes: (1) HTML/text→PDF: provide html_content with the HTML, markdown, or plain text you have written — it will be automatically converted to a real PDF and uploaded. (2) Binary file: provide file_data (base64) + filename + content_type for a user-supplied file. Use mode 1 whenever you are generating or writing the document content yourself.",
+			"Upload a user-supplied file to a Vamoos itinerary. Use this tool ONLY when the user has provided a file (base64 encoded) or raw HTML to upload — NOT when you are writing the document content yourself. For AI-generated documents use upload_created_itinerary_document instead. Two modes: (1) HTML→PDF: provide html_content with raw HTML to convert to PDF. (2) Binary file: provide file_data (base64) + filename + content_type.",
 			{
 				reference_code: z
 					.string()
