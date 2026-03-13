@@ -332,7 +332,7 @@ export class VamoosMCP extends McpAgent<Env> {
 				});
 
 				const response = await fetch(
-					`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}?${params}`,
+					`${VAMOOS_BASE_URL}/itinerary?${params}`,
 					{
 						method: "GET",
 						headers: {
@@ -350,7 +350,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						content: [
 							{
 								type: "text",
-								text: `Error ${response.status} (final url: ${response.url}, redirected: ${response.redirected}): ${JSON.stringify(data, null, 2)}`,
+								text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}`,
 							},
 						],
 					};
