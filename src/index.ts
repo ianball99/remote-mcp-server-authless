@@ -81,9 +81,26 @@ function htmlToText(html: string): string {
 		.trim();
 }
 
+// Replace Unicode characters that fall outside WinAnsi encoding (used by pdf-lib StandardFonts).
+// Unrecognised characters cause drawText to throw, producing a blank/truncated PDF.
+function toWinAnsi(text: string): string {
+	return text
+		.replace(/[\u2018\u2019\u201A\u201B]/g, "'")   // curly single quotes
+		.replace(/[\u201C\u201D\u201E\u201F]/g, '"')   // curly double quotes
+		.replace(/\u2013/g, "-")                        // en dash
+		.replace(/\u2014/g, "--")                       // em dash
+		.replace(/\u2026/g, "...")                      // ellipsis
+		.replace(/\u2022/g, "*")                        // bullet
+		.replace(/\u2192/g, "->")                       // right arrow
+		.replace(/\u2190/g, "<-")                       // left arrow
+		.replace(/\u00A0/g, " ")                        // non-breaking space
+		.replace(/\u2011/g, "-")                        // non-breaking hyphen
+		.replace(/[^\x00-\xFF]/g, "?");                 // anything else outside Latin-1
+}
+
 async function generatePdfFromText(title: string, content: string): Promise<Uint8Array> {
-	// Strip HTML if the content looks like an HTML document
-	if (/<html[\s>]/i.test(content) || /<!doctype\s+html/i.test(content)) {
+	// Strip HTML — both full documents and partial fragments
+	if (/<[a-z][\s\S]*?>/i.test(content)) {
 		content = htmlToText(content);
 	}
 	const pdfDoc = await PDFDocument.create();
@@ -100,7 +117,7 @@ async function generatePdfFromText(title: string, content: string): Promise<Uint
 	let y = pageHeight - marginY;
 
 	const titleSize = 16;
-	page.drawText(title, { x: marginX, y: y - titleSize, size: titleSize, font: boldFont, color: rgb(0, 0, 0) });
+	page.drawText(toWinAnsi(title || " "), { x: marginX, y: y - titleSize, size: titleSize, font: boldFont, color: rgb(0, 0, 0) });
 	y -= titleSize + 6;
 	page.drawLine({ start: { x: marginX, y }, end: { x: pageWidth - marginX, y }, thickness: 0.5, color: rgb(0.5, 0.5, 0.5) });
 	y -= 14;
@@ -120,7 +137,7 @@ async function generatePdfFromText(title: string, content: string): Promise<Uint
 
 	for (const rawLine of content.split("\n")) {
 		const isHeading = /^#{1,3}\s/.test(rawLine);
-		const lineText = rawLine.replace(/^#{1,3}\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1");
+		const lineText = toWinAnsi(rawLine.replace(/^#{1,3}\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1"));
 		const size = isHeading ? headingSize : bodySize;
 		const f = isHeading ? boldFont : font;
 
