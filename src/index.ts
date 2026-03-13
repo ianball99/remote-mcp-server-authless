@@ -82,8 +82,8 @@ function htmlToText(html: string): string {
 }
 
 async function generatePdfFromText(title: string, content: string): Promise<Uint8Array> {
-	// Strip HTML if the content looks like an HTML document or contains any HTML tags
-	if (/<html[\s>]/i.test(content) || /<!doctype\s+html/i.test(content) || /<[a-z][^>]*>/i.test(content)) {
+	// Strip HTML if the content looks like an HTML document
+	if (/<html[\s>]/i.test(content) || /<!doctype\s+html/i.test(content)) {
 		content = htmlToText(content);
 	}
 	const pdfDoc = await PDFDocument.create();
@@ -555,7 +555,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Generate a PDF from text and upload it as a travel document
 		this.server.tool(
 			"generate_and_upload_pdf",
-			"Generate a PDF from plain text content and upload it as a travel document to a Vamoos itinerary. Use this instead of upload_document when you want to create a PDF itinerary — pass the itinerary text directly and a proper PDF will be generated server-side.",
+			"ALWAYS use this tool when creating or uploading any itinerary, document, or PDF that you have written or generated yourself (as text, markdown, or HTML). Do NOT use upload_document for content you have created — pass it here directly and a proper PDF is generated server-side. Only use upload_document for pre-existing binary files supplied by the user.",
 			{
 				reference_code: z
 					.string()
@@ -579,7 +579,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.describe("Title displayed at the top of the PDF (e.g. 'Rome Trip Itinerary')"),
 				content: z
 					.string()
-					.describe("Plain text or markdown content of the itinerary. Supports # headings and **bold** text."),
+					.describe("The itinerary content as plain text, markdown, or HTML. Headings, bold, and lists are all supported."),
 				filename: z
 					.string()
 					.optional()
@@ -638,7 +638,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a document to an itinerary
 		this.server.tool(
 			"upload_document",
-			"Upload a document to a Vamoos itinerary's travel documents. Provide the file as base64-encoded data. IMPORTANT: If you want to upload a PDF itinerary you wrote as text, use generate_and_upload_pdf instead — this tool is for uploading pre-existing binary files only.",
+			"Upload a pre-existing binary file (supplied by the user) to a Vamoos itinerary's travel documents. Provide the file as base64-encoded data. IMPORTANT: If the content is text, markdown, or HTML that you generated yourself, you MUST use generate_and_upload_pdf instead — do NOT base64-encode text and pass it here.",
 			{
 				reference_code: z
 					.string()
