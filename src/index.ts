@@ -608,6 +608,92 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 		);
 
+		// Upload a GPX track file as a POI and attach it to an itinerary
+		this.server.tool(
+			"upload_gpx_track",
+			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content as a string.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("Reference code (Passcode) of the itinerary"),
+				vamoos_id: z
+					.number()
+					.int()
+					.describe("The vamoos_id of the itinerary"),
+				departure_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Departure date (YYYY-MM-DD)"),
+				return_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Return date (YYYY-MM-DD)"),
+				gpx_content: z
+					.string()
+					.describe("Raw GPX XML content to upload"),
+			},
+			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content }) => {
+				try {
+					// Step 1: POST GPX to create POI(s)
+					const gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/gpx+xml",
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+						body: gpx_content,
+					});
+
+					const gpxData = await safeJson(gpxResponse);
+
+					if (!gpxResponse.ok) {
+						return {
+							content: [{ type: "text", text: `Error uploading GPX: ${JSON.stringify(gpxData, null, 2)}` }],
+						};
+					}
+
+					// Response is an array of poi objects
+					const pois = Array.isArray(gpxData) ? gpxData : [gpxData];
+					const poiIds = (pois as Array<{ id: number }>).map((p) => ({ id: p.id, is_on: true }));
+
+					// Step 2: Attach POIs to the itinerary
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify({ vamoos_id, departure_date, return_date, pois: poiIds }),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+
+					if (!itinResponse.ok) {
+						return {
+							content: [{ type: "text", text: `GPX uploaded (${pois.length} POI(s) created: ${poiIds.map((p) => p.id).join(", ")}), but error attaching to itinerary: ${JSON.stringify(itinData, null, 2)}` }],
+						};
+					}
+
+					return {
+						content: [{ type: "text", text: `GPX track uploaded. Created ${pois.length} POI(s) [${poiIds.map((p) => p.id).join(", ")}] and attached to trip.\n${JSON.stringify(itinData, null, 2)}` }],
+					};
+				} catch (err) {
+					return {
+						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+					};
+				}
+			},
+		);
+
 		// Upload a document to an itinerary — supports both HTML→PDF conversion and binary file upload
 		this.server.tool(
 			"upload_document",
