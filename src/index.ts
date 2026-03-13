@@ -82,8 +82,8 @@ function htmlToText(html: string): string {
 }
 
 async function generatePdfFromText(title: string, content: string): Promise<Uint8Array> {
-	// Strip HTML if the content looks like an HTML document
-	if (/<html[\s>]/i.test(content) || /<!doctype\s+html/i.test(content)) {
+	// Strip HTML if the content looks like an HTML document or contains any HTML tags
+	if (/<html[\s>]/i.test(content) || /<!doctype\s+html/i.test(content) || /<[a-z][^>]*>/i.test(content)) {
 		content = htmlToText(content);
 	}
 	const pdfDoc = await PDFDocument.create();
