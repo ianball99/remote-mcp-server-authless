@@ -665,7 +665,8 @@ export class VamoosMCP extends McpAgent<Env> {
 					if (html_content) {
 						// Mode 1: render HTML to PDF via browser
 						const title = pdf_title ?? document_name;
-						const fullHtml = wrapHtmlIfNeeded(html_content, title);
+						const isHtml = /<[a-zA-Z]/.test(html_content);
+						const fullHtml = wrapHtmlIfNeeded(isHtml ? html_content : markdownToHtml(html_content), title);
 						fileBytes = await generatePdfFromHtml(fullHtml, this.env);
 						uploadFilename = filename ?? "document.pdf";
 						uploadContentType = "application/pdf";
