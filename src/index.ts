@@ -57,6 +57,54 @@ async function uploadToS3(url: string, fileData: Uint8Array, contentType: string
 	}
 }
 
+// Converts plain markdown to HTML. Handles # headings, **bold**, - bullets, and paragraphs.
+function markdownToHtml(markdown: string): string {
+	const lines = markdown.split("\n");
+	const parts: string[] = [];
+	let listOpen = false;
+
+	const closeList = () => {
+		if (listOpen) {
+			parts.push("</ul>");
+			listOpen = false;
+		}
+	};
+
+	for (const raw of lines) {
+		const line = raw.trimEnd();
+
+		if (/^### /.test(line)) {
+			closeList();
+			parts.push(`<h3>${escHtml(line.slice(4))}</h3>`);
+		} else if (/^## /.test(line)) {
+			closeList();
+			parts.push(`<h2>${escHtml(line.slice(3))}</h2>`);
+		} else if (/^# /.test(line)) {
+			closeList();
+			parts.push(`<h1>${escHtml(line.slice(2))}</h1>`);
+		} else if (/^[-*] /.test(line)) {
+			if (!listOpen) { parts.push("<ul>"); listOpen = true; }
+			parts.push(`<li>${inlineMarkdown(line.slice(2))}</li>`);
+		} else if (line === "") {
+			closeList();
+			parts.push("");
+		} else {
+			closeList();
+			parts.push(`<p>${inlineMarkdown(line)}</p>`);
+		}
+	}
+	closeList();
+	return parts.join("\n");
+}
+
+function escHtml(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function inlineMarkdown(s: string): string {
+	return escHtml(s).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+}
+
 // Wraps an HTML fragment in a full document if needed, so Puppeteer can render it correctly.
 function wrapHtmlIfNeeded(html: string, title: string): string {
 	if (/<html/i.test(html)) return html;
@@ -475,6 +523,82 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					return {
 						content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+					};
+				} catch (err) {
+					return {
+						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+					};
+				}
+			},
+		);
+
+		// Upload AI-written markdown content as a PDF document to an itinerary
+		this.server.tool(
+			"upload_created_itinerary_document",
+			"Use this tool when YOU (the assistant) are writing the content of a document to attach to a Vamoos trip. Write the full content as plain markdown — use # for the main title, ## for section headings, **bold** for emphasis, and - for bullet points. Do NOT write HTML. The server converts the markdown to a styled PDF and attaches it to the trip.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("Reference code (Passcode) of the itinerary"),
+				vamoos_id: z
+					.number()
+					.int()
+					.describe("The vamoos_id of the itinerary"),
+				departure_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Departure date (YYYY-MM-DD)"),
+				return_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Return date (YYYY-MM-DD)"),
+				document_name: z
+					.string()
+					.describe("Display name shown in the Vamoos app (e.g. 'Travel Itinerary', 'Welcome Letter')"),
+				markdown_content: z
+					.string()
+					.describe("The full document written as plain markdown. Use # for the title, ## for headings, **bold**, and - for bullets. No HTML."),
+			},
+			async ({ reference_code, vamoos_id, departure_date, return_date, document_name, markdown_content }) => {
+				try {
+					const html = wrapHtmlIfNeeded(markdownToHtml(markdown_content), document_name);
+					const fileBytes = await generatePdfFromHtml(html, this.env);
+					const { url, s3url } = await getS3UploadUrl("document.pdf", "application/pdf", this.env.VAMOOS_API_TOKEN);
+					await uploadToS3(url, fileBytes, "application/pdf");
+
+					const response = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify({
+								vamoos_id,
+								departure_date,
+								return_date,
+								documents: {
+									travel: [{ file_url: s3url, name: document_name }],
+								},
+							}),
+						},
+					);
+
+					const data = await safeJson(response);
+
+					if (!response.ok) {
+						return {
+							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}` }],
+						};
+					}
+
+					return {
+						content: [{ type: "text", text: `Document "${document_name}" uploaded successfully.\n${JSON.stringify(data, null, 2)}` }],
 					};
 				} catch (err) {
 					return {
