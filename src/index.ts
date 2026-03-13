@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import puppeteer from "@cloudflare/puppeteer";
 import { z } from "zod";
 
 const VAMOOS_BASE_URL = "https://live.vamoos.com/v3";
@@ -57,111 +57,26 @@ async function uploadToS3(url: string, fileData: Uint8Array, contentType: string
 	}
 }
 
-function htmlToText(html: string): string {
-	return html
-		// Remove <style> and <script> blocks entirely (tags + content)
-		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-		// Convert block elements to newlines before stripping
-		.replace(/<h[1-3][^>]*>/gi, "\n## ")
-		.replace(/<\/h[1-6]>/gi, "\n")
-		.replace(/<(p|div|li|tr|br\s?\/?)[^>]*>/gi, "\n")
-		.replace(/<\/?(ul|ol|table|thead|tbody)[^>]*>/gi, "\n")
-		// Strip all remaining tags
-		.replace(/<[^>]+>/g, "")
-		// Decode common HTML entities
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;/g, "'")
-		.replace(/&nbsp;/g, " ")
-		// Collapse multiple blank lines
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+// Wraps an HTML fragment in a full document if needed, so Puppeteer can render it correctly.
+function wrapHtmlIfNeeded(html: string, title: string): string {
+	if (/<html/i.test(html)) return html;
+	return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;margin:40px}h1{font-size:18px;margin:0 0 12px}h2{font-size:14px;margin:20px 0 6px;border-bottom:1px solid #ccc;padding-bottom:4px}p{margin:0 0 8px}ul{margin:0 0 8px;padding-left:20px}li{margin-bottom:3px}</style></head><body>${html}</body></html>`;
 }
 
-// Replace Unicode characters that fall outside WinAnsi encoding (used by pdf-lib StandardFonts).
-// Unrecognised characters cause drawText to throw, producing a blank/truncated PDF.
-function toWinAnsi(text: string): string {
-	return text
-		.replace(/[\u2018\u2019\u201A\u201B]/g, "'")   // curly single quotes
-		.replace(/[\u201C\u201D\u201E\u201F]/g, '"')   // curly double quotes
-		.replace(/\u2013/g, "-")                        // en dash
-		.replace(/\u2014/g, "--")                       // em dash
-		.replace(/\u2026/g, "...")                      // ellipsis
-		.replace(/\u2022/g, "*")                        // bullet
-		.replace(/\u2192/g, "->")                       // right arrow
-		.replace(/\u2190/g, "<-")                       // left arrow
-		.replace(/\u00A0/g, " ")                        // non-breaking space
-		.replace(/\u2011/g, "-")                        // non-breaking hyphen
-		.replace(/[^\x00-\xFF]/g, "?");                 // anything else outside Latin-1
-}
-
-async function generatePdfFromText(title: string, content: string): Promise<Uint8Array> {
-	// Strip HTML — both full documents and partial fragments
-	if (/<[a-z][\s\S]*?>/i.test(content)) {
-		content = htmlToText(content);
+async function generatePdfFromHtml(html: string, env: Env): Promise<Uint8Array> {
+	const browser = await puppeteer.launch(env.BROWSER);
+	try {
+		const page = await browser.newPage();
+		await page.setContent(html, { waitUntil: "networkidle0" });
+		const pdfBuffer = await page.pdf({
+			format: "A4",
+			printBackground: true,
+			margin: { top: "20mm", right: "20mm", bottom: "20mm", left: "20mm" },
+		});
+		return new Uint8Array(pdfBuffer);
+	} finally {
+		await browser.close();
 	}
-	const pdfDoc = await PDFDocument.create();
-	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-	const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-	const pageWidth = 595;
-	const pageHeight = 842;
-	const marginX = 50;
-	const marginY = 50;
-	const contentWidth = pageWidth - 2 * marginX;
-
-	let page = pdfDoc.addPage([pageWidth, pageHeight]);
-	let y = pageHeight - marginY;
-
-	const titleSize = 16;
-	page.drawText(toWinAnsi(title || " "), { x: marginX, y: y - titleSize, size: titleSize, font: boldFont, color: rgb(0, 0, 0) });
-	y -= titleSize + 6;
-	page.drawLine({ start: { x: marginX, y }, end: { x: pageWidth - marginX, y }, thickness: 0.5, color: rgb(0.5, 0.5, 0.5) });
-	y -= 14;
-
-	const bodySize = 10;
-	const lineHeight = bodySize * 1.6;
-	const headingSize = 12;
-
-	const drawLine = (text: string, size: number, f: typeof font) => {
-		if (y - size < marginY) {
-			page = pdfDoc.addPage([pageWidth, pageHeight]);
-			y = pageHeight - marginY;
-		}
-		if (text) page.drawText(text, { x: marginX, y, size, font: f, color: rgb(0, 0, 0) });
-		y -= size * 1.6;
-	};
-
-	for (const rawLine of content.split("\n")) {
-		const isHeading = /^#{1,3}\s/.test(rawLine);
-		const lineText = toWinAnsi(rawLine.replace(/^#{1,3}\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1"));
-		const size = isHeading ? headingSize : bodySize;
-		const f = isHeading ? boldFont : font;
-
-		if (!lineText.trim()) {
-			y -= lineHeight * 0.5;
-			continue;
-		}
-
-		// Word-wrap
-		const words = lineText.split(" ");
-		let current = "";
-		for (const word of words) {
-			const test = current ? `${current} ${word}` : word;
-			if (f.widthOfTextAtSize(test, size) > contentWidth && current) {
-				drawLine(current, size, f);
-				current = word;
-			} else {
-				current = test;
-			}
-		}
-		if (current) drawLine(current, size, f);
-	}
-
-	return pdfDoc.save();
 }
 
 const CORS_HEADERS = {
@@ -624,8 +539,10 @@ export class VamoosMCP extends McpAgent<Env> {
 					let uploadContentType: string;
 
 					if (html_content) {
-						// Mode 1: convert HTML/text/markdown to a real PDF
-						fileBytes = await generatePdfFromText(pdf_title ?? document_name, html_content);
+						// Mode 1: render HTML to PDF via browser
+						const title = pdf_title ?? document_name;
+						const fullHtml = wrapHtmlIfNeeded(html_content, title);
+						fileBytes = await generatePdfFromHtml(fullHtml, this.env);
 						uploadFilename = filename ?? "document.pdf";
 						uploadContentType = "application/pdf";
 					} else if (file_data) {

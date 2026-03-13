@@ -5,4 +5,5 @@ interface Env {
 	 * This corresponds to the X-User-Access-Token header in API requests.
 	 */
 	VAMOOS_API_TOKEN: string;
+	BROWSER: Fetcher;
 }
