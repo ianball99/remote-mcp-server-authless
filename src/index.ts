@@ -532,10 +532,11 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 		);
 
-		// Upload AI-written markdown content as a PDF document to an itinerary
+		// LEGACY: Upload AI-written markdown content as a PDF document to an itinerary.
+		// Kept for reference — use upload_created_html_itinerary_document instead.
 		this.server.tool(
-			"upload_created_itinerary_document",
-			"ALWAYS use this tool when YOU (the assistant) are generating or writing any document content to attach to a Vamoos trip — for example itineraries, welcome letters, or information packs. Do NOT use upload_document for this purpose. Write the full content as plain markdown — use # for the main title, ## for section headings, **bold** for emphasis, and - for bullet points. Do NOT write HTML. The server converts the markdown to a styled PDF and attaches it to the trip.",
+			"legacy_upload_created_itinerary_document",
+			"LEGACY TOOL — do not use. Use upload_created_html_itinerary_document instead. This tool converts markdown to PDF via Puppeteer and is no longer the preferred approach.",
 			{
 				reference_code: z
 					.string()
@@ -685,6 +686,83 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					return {
 						content: [{ type: "text", text: `GPX track uploaded. Created ${pois.length} POI(s) [${poiIds.map((p) => p.id).join(", ")}] and attached to trip.\n${JSON.stringify(itinData, null, 2)}` }],
+					};
+				} catch (err) {
+					return {
+						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+					};
+				}
+			},
+		);
+
+		// Upload an AI-generated HTML document directly as an .html file to an itinerary
+		this.server.tool(
+			"upload_created_html_itinerary_document",
+			"ALWAYS use this tool when YOU (the assistant) are generating or writing any document content to attach to a Vamoos trip — for example itineraries, welcome letters, or information packs. Write the full document as HTML. The server uploads it as a .html file and attaches it to the trip. Do NOT use upload_document for AI-generated content.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("Reference code (Passcode) of the itinerary"),
+				vamoos_id: z
+					.number()
+					.int()
+					.describe("The vamoos_id of the itinerary"),
+				departure_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Departure date (YYYY-MM-DD)"),
+				return_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Return date (YYYY-MM-DD)"),
+				document_name: z
+					.string()
+					.describe("Display name shown in the Vamoos app (e.g. 'Travel Itinerary'). Also used as the filename."),
+				html_content: z
+					.string()
+					.describe("The full document written as HTML. Can be a complete HTML document or a fragment — the server will wrap fragments automatically."),
+			},
+			async ({ reference_code, vamoos_id, departure_date, return_date, document_name, html_content }) => {
+				try {
+					const fullHtml = wrapHtmlIfNeeded(html_content, document_name);
+					const fileBytes = new TextEncoder().encode(fullHtml);
+					const safeFilename = document_name.replace(/[^a-zA-Z0-9 _-]/g, "").trim() + ".html";
+					const { url, s3url } = await getS3UploadUrl(safeFilename, "text/html", this.env.VAMOOS_API_TOKEN);
+					await uploadToS3(url, fileBytes, "text/html");
+
+					const response = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify({
+								vamoos_id,
+								departure_date,
+								return_date,
+								documents: {
+									travel: [{ file_url: s3url, name: document_name }],
+								},
+							}),
+						},
+					);
+
+					const data = await safeJson(response);
+
+					if (!response.ok) {
+						return {
+							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}` }],
+						};
+					}
+
+					return {
+						content: [{ type: "text", text: `Document "${document_name}" uploaded successfully as ${safeFilename}.\n${JSON.stringify(data, null, 2)}` }],
 					};
 				} catch (err) {
 					return {
