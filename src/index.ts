@@ -775,7 +775,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a document to an itinerary — supports both HTML→PDF conversion and binary file upload
 		this.server.tool(
 			"upload_document",
-			"Upload a user-supplied file to a Vamoos itinerary. Use this tool ONLY when the user has provided a file (base64 encoded) or raw HTML to upload — NOT when you are writing the document content yourself. For AI-generated documents use upload_created_itinerary_document instead. Two modes: (1) HTML→PDF: provide html_content with raw HTML to convert to PDF. (2) Binary file: provide file_data (base64) + filename + content_type.",
+			"Upload a user-supplied file to a Vamoos itinerary. Use this tool ONLY when the user has provided a file (base64 encoded) or raw HTML to upload — NOT when you are writing the document content yourself. For AI-generated documents use upload_created_html_itinerary_document instead. Two modes: (1) HTML→PDF: provide html_content with raw HTML to convert to PDF. (2) Binary file: provide file_data (base64) + filename + content_type.",
 			{
 				reference_code: z
 					.string()
