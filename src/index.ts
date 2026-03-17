@@ -611,7 +611,7 @@ export class VamoosMCP extends McpAgent<Env> {
 
 		// Upload a GPX track file as a POI and attach it to an itinerary
 		this.server.tool(
-			"upload_gpx_track",
+			"upload_gpx_and_attach_to_itinerary",
 			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content as a string.",
 			{
 				reference_code: z
