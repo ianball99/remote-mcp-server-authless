@@ -169,19 +169,17 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		// GPX path — POST directly to Vamoos /poi/gpx, then attach POIs to itinerary
 		if (uploadType === "gpx") {
 			const gpxText = await file.text();
-			// Use multipart/form-data — some APIs hang waiting for boundary if sent raw
-			const gpxFormData = new FormData();
-			gpxFormData.append("file", new Blob([gpxText], { type: "application/gpx+xml" }), filename);
 			let gpxResponse: Response;
 			try {
 				gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
 					method: "POST",
 					headers: {
+						"Content-Type": "application/gpx+xml",
 						Accept: "application/json",
 						"X-Operator-Code": OPERATOR_CODE,
 						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
 					},
-					body: gpxFormData,
+					body: gpxText,
 					signal: AbortSignal.timeout(25000),
 				});
 			} catch (e) {
