@@ -169,19 +169,29 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		// GPX path — POST directly to Vamoos /poi/gpx, then attach POIs to itinerary
 		if (uploadType === "gpx") {
 			const gpxText = await file.text();
-			const gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/gpx+xml",
-					Accept: "application/json",
-					"X-Operator-Code": OPERATOR_CODE,
-					"X-User-Access-Token": env.VAMOOS_API_TOKEN,
-				},
-				body: gpxText,
-			});
+			let gpxResponse: Response;
+			try {
+				gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/gpx+xml",
+						Accept: "application/json",
+						"X-Operator-Code": OPERATOR_CODE,
+						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+					},
+					body: gpxText,
+					signal: AbortSignal.timeout(25000),
+				});
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				return new Response(JSON.stringify({ ok: false, error: `GPX upload timed out or failed: ${msg}` }), {
+					status: 504,
+					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+				});
+			}
 			const gpxData = await safeJson(gpxResponse);
 			if (!gpxResponse.ok) {
-				return new Response(JSON.stringify({ ok: false, error: "GPX upload failed", data: gpxData }), {
+				return new Response(JSON.stringify({ ok: false, error: `GPX upload failed (HTTP ${gpxResponse.status})`, data: gpxData }), {
 					status: gpxResponse.status,
 					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
 				});
@@ -199,6 +209,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
 					},
 					body: JSON.stringify({ vamoos_id: vamoosId, departure_date: departureDate, return_date: returnDate, pois: poiIds }),
+					signal: AbortSignal.timeout(15000),
 				},
 			);
 			const vData = await safeJson(vResponse);
