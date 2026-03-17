@@ -166,6 +166,49 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			);
 		}
 
+		// GPX path — POST directly to Vamoos /poi/gpx, then attach POIs to itinerary
+		if (uploadType === "gpx") {
+			const gpxText = await file.text();
+			const gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/gpx+xml",
+					Accept: "application/json",
+					"X-Operator-Code": OPERATOR_CODE,
+					"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+				},
+				body: gpxText,
+			});
+			const gpxData = await safeJson(gpxResponse);
+			if (!gpxResponse.ok) {
+				return new Response(JSON.stringify({ ok: false, error: "GPX upload failed", data: gpxData }), {
+					status: gpxResponse.status,
+					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+				});
+			}
+			const pois = Array.isArray(gpxData) ? gpxData : [gpxData];
+			const poiIds = (pois as Array<{ id: number }>).map((p) => ({ id: p.id, is_on: true }));
+			const vResponse = await fetch(
+				`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json",
+						"X-Operator-Code": OPERATOR_CODE,
+						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+					},
+					body: JSON.stringify({ vamoos_id: vamoosId, departure_date: departureDate, return_date: returnDate, pois: poiIds }),
+				},
+			);
+			const vData = await safeJson(vResponse);
+			const poiIdList = poiIds.map((p) => p.id).join(", ");
+			return new Response(
+				JSON.stringify({ ok: vResponse.ok, message: `GPX uploaded. Created ${pois.length} POI(s) [${poiIdList}] and attached to itinerary.`, data: vData }),
+				{ status: vResponse.ok ? 200 : vResponse.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+			);
+		}
+
 		const { url, s3url } = await getS3UploadUrl(filename, contentType, env.VAMOOS_API_TOKEN);
 		const fileData = new Uint8Array(await file.arrayBuffer());
 		await uploadToS3(url, fileData, contentType);
