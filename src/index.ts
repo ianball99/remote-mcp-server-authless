@@ -179,8 +179,79 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			);
 		}
 
-		const { url, s3url } = await getS3UploadUrl(filename, contentType, env.VAMOOS_API_TOKEN);
 		const fileData = new Uint8Array(await file.arrayBuffer());
+
+		// GPX track — parse waypoints and create a POI (no S3 upload needed)
+		if (uploadType === "gpx") {
+			const gpxText = new TextDecoder().decode(fileData);
+			const { latitude, longitude, waypoints } = parseGpx(gpxText);
+			const poiName = filename.replace(/\.gpx$/i, "");
+
+			const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json",
+					"X-Operator-Code": OPERATOR_CODE,
+					"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+				},
+				body: JSON.stringify({
+					name: poiName,
+					location: null,
+					latitude,
+					longitude,
+					position: null,
+					description: null,
+					icon_id: 1,
+					timezone: null,
+					is_default_on: true,
+					poi_range: 100,
+					file: null,
+					meta: { waypoints },
+					type: "track",
+					children: [],
+					localisation: {},
+				}),
+			});
+
+			const poiData = await safeJson(poiResponse);
+			if (!poiResponse.ok) {
+				return new Response(JSON.stringify({ ok: false, error: `Failed to create POI: ${JSON.stringify(poiData)}` }), {
+					status: poiResponse.status,
+					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+				});
+			}
+
+			const poi = poiData as { id: number };
+
+			const itinResponse = await fetch(
+				`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json",
+						"X-Operator-Code": OPERATOR_CODE,
+						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+					},
+					body: JSON.stringify({
+						vamoos_id: vamoosId,
+						departure_date: departureDate,
+						return_date: returnDate,
+						pois: [{ id: poi.id, is_on: true }],
+					}),
+				},
+			);
+
+			const itinData = await safeJson(itinResponse);
+			return new Response(
+				JSON.stringify({ ok: itinResponse.ok, message: `GPX track "${poiName}" created as POI (id: ${poi.id}, ${waypoints.length} waypoints) and attached to trip.`, data: itinData }),
+				{ status: itinResponse.ok ? 200 : itinResponse.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+			);
+		}
+
+		// Background image or document — upload to S3 then attach to itinerary
+		const { url, s3url } = await getS3UploadUrl(filename, contentType, env.VAMOOS_API_TOKEN);
 		await uploadToS3(url, fileData, contentType);
 
 		const itineraryBody: Record<string, unknown> = {
