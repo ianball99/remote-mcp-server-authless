@@ -6,6 +6,19 @@ import { z } from "zod";
 const VAMOOS_BASE_URL = "https://live.vamoos.com/v3";
 const OPERATOR_CODE = "alisdair";
 
+function parseGpx(gpxContent: string): { latitude: string; longitude: string; waypoints: Array<{ latitude: string; longitude: string }> } {
+	const waypointRegex = /<trkpt\s+lat="([^"]+)"\s+lon="([^"]+)"/g;
+	const waypoints: Array<{ latitude: string; longitude: string }> = [];
+	let match: RegExpExecArray | null;
+	while ((match = waypointRegex.exec(gpxContent)) !== null) {
+		waypoints.push({ latitude: match[1], longitude: match[2] });
+	}
+	if (waypoints.length === 0) {
+		throw new Error("No track points found in GPX content");
+	}
+	return { latitude: waypoints[0].latitude, longitude: waypoints[0].longitude, waypoints };
+}
+
 function base64ToBytes(base64: string): Uint8Array {
 	const binary = atob(base64);
 	const bytes = new Uint8Array(binary.length);
@@ -163,60 +176,6 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			return new Response(
 				JSON.stringify({ error: "Missing required fields: reference_id, departure_date, return_date" }),
 				{ status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-			);
-		}
-
-		// GPX path — POST directly to Vamoos /poi/gpx, then attach POIs to itinerary
-		if (uploadType === "gpx") {
-			const gpxText = await file.text();
-			let gpxResponse: Response;
-			try {
-				gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/gpx+xml",
-						Accept: "application/json",
-						"X-Operator-Code": OPERATOR_CODE,
-						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
-					},
-					body: gpxText,
-					signal: AbortSignal.timeout(25000),
-				});
-			} catch (e) {
-				const msg = e instanceof Error ? e.message : String(e);
-				return new Response(JSON.stringify({ ok: false, error: `GPX upload timed out or failed: ${msg}` }), {
-					status: 504,
-					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-				});
-			}
-			const gpxData = await safeJson(gpxResponse);
-			if (!gpxResponse.ok) {
-				return new Response(JSON.stringify({ ok: false, error: `GPX upload failed (HTTP ${gpxResponse.status})`, data: gpxData }), {
-					status: gpxResponse.status,
-					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-				});
-			}
-			const pois = Array.isArray(gpxData) ? gpxData : [gpxData];
-			const poiIds = (pois as Array<{ id: number }>).map((p) => ({ id: p.id, is_on: true }));
-			const vResponse = await fetch(
-				`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Accept: "application/json",
-						"X-Operator-Code": OPERATOR_CODE,
-						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
-					},
-					body: JSON.stringify({ vamoos_id: vamoosId, departure_date: departureDate, return_date: returnDate, pois: poiIds }),
-					signal: AbortSignal.timeout(15000),
-				},
-			);
-			const vData = await safeJson(vResponse);
-			const poiIdList = poiIds.map((p) => p.id).join(", ");
-			return new Response(
-				JSON.stringify({ ok: vResponse.ok, message: `GPX uploaded. Created ${pois.length} POI(s) [${poiIdList}] and attached to itinerary.`, data: vData }),
-				{ status: vResponse.ok ? 200 : vResponse.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
 			);
 		}
 
@@ -666,7 +625,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a GPX track file as a POI and attach it to an itinerary
 		this.server.tool(
 			"upload_gpx_and_attach_to_itinerary",
-			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content as a string.",
+			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content and the original filename.",
 			{
 				reference_code: z
 					.string()
@@ -688,34 +647,55 @@ export class VamoosMCP extends McpAgent<Env> {
 				gpx_content: z
 					.string()
 					.describe("Raw GPX XML content to upload"),
+				filename: z
+					.string()
+					.describe("Original filename of the GPX file (e.g. mytrack.gpx), used as the POI name"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content }) => {
+			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content, filename }) => {
 				try {
-					// Step 1: POST GPX to create POI(s)
-					const gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
+					// Parse waypoints from GPX
+					const { latitude, longitude, waypoints } = parseGpx(gpx_content);
+					const poiName = filename.replace(/\.gpx$/i, "");
+
+					// Step 1: POST to /poi with JSON
+					const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
 						method: "POST",
 						headers: {
-							"Content-Type": "application/gpx+xml",
+							"Content-Type": "application/json",
 							Accept: "application/json",
 							"X-Operator-Code": OPERATOR_CODE,
 							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 						},
-						body: gpx_content,
+						body: JSON.stringify({
+							name: poiName,
+							location: null,
+							latitude,
+							longitude,
+							position: null,
+							description: null,
+							icon_id: 1,
+							timezone: null,
+							is_default_on: true,
+							poi_range: 100,
+							file: null,
+							meta: { waypoints },
+							type: "track",
+							children: [],
+							localisation: {},
+						}),
 					});
 
-					const gpxData = await safeJson(gpxResponse);
+					const poiData = await safeJson(poiResponse);
 
-					if (!gpxResponse.ok) {
+					if (!poiResponse.ok) {
 						return {
-							content: [{ type: "text", text: `Error uploading GPX: ${JSON.stringify(gpxData, null, 2)}` }],
+							content: [{ type: "text", text: `Error creating POI: ${JSON.stringify(poiData, null, 2)}` }],
 						};
 					}
 
-					// Response is an array of poi objects
-					const pois = Array.isArray(gpxData) ? gpxData : [gpxData];
-					const poiIds = (pois as Array<{ id: number }>).map((p) => ({ id: p.id, is_on: true }));
+					const poi = poiData as { id: number };
 
-					// Step 2: Attach POIs to the itinerary
+					// Step 2: Attach POI to the itinerary
 					const itinResponse = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
 						{
@@ -726,7 +706,7 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({ vamoos_id, departure_date, return_date, pois: poiIds }),
+							body: JSON.stringify({ vamoos_id, departure_date, return_date, pois: [{ id: poi.id, is_on: true }] }),
 						},
 					);
 
@@ -734,12 +714,12 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					if (!itinResponse.ok) {
 						return {
-							content: [{ type: "text", text: `GPX uploaded (${pois.length} POI(s) created: ${poiIds.map((p) => p.id).join(", ")}), but error attaching to itinerary: ${JSON.stringify(itinData, null, 2)}` }],
+							content: [{ type: "text", text: `POI created (id: ${poi.id}), but error attaching to itinerary: ${JSON.stringify(itinData, null, 2)}` }],
 						};
 					}
 
 					return {
-						content: [{ type: "text", text: `GPX track uploaded. Created ${pois.length} POI(s) [${poiIds.map((p) => p.id).join(", ")}] and attached to trip.\n${JSON.stringify(itinData, null, 2)}` }],
+						content: [{ type: "text", text: `GPX track "${poiName}" uploaded as POI (id: ${poi.id}, ${waypoints.length} waypoints) and attached to trip.\n${JSON.stringify(itinData, null, 2)}` }],
 					};
 				} catch (err) {
 					return {
