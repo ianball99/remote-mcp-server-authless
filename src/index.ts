@@ -239,6 +239,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 						departure_date: departureDate,
 						return_date: returnDate,
 						pois: [{ id: poi.id, is_on: true }],
+						locations: [{ name: `Location-${poiName}`, latitude, longitude }],
 					}),
 				},
 			);
@@ -773,8 +774,15 @@ export class VamoosMCP extends McpAgent<Env> {
 					const poi = poiData as { id: number };
 					log.push(`[3/4] POI created with id=${poi.id}`);
 
-					// Step 2: Attach POI to the itinerary
-					const itinPayload = { vamoos_id, departure_date, return_date, pois: [{ id: poi.id, is_on: true }] };
+					// Step 2: Attach POI to the itinerary (also add a location pin at the track start)
+					const locationName = `Location-${poiName}`;
+					const itinPayload = {
+						vamoos_id,
+						departure_date,
+						return_date,
+						pois: [{ id: poi.id, is_on: true }],
+						locations: [{ name: locationName, latitude, longitude }],
+					};
 					log.push(`[4/4] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify(itinPayload, null, 2)}`);
 
 					const itinResponse = await fetch(
