@@ -652,12 +652,33 @@ export class VamoosMCP extends McpAgent<Env> {
 					.describe("Original filename of the GPX file (e.g. mytrack.gpx), used as the POI name"),
 			},
 			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content, filename }) => {
+				const log: string[] = [];
 				try {
 					// Parse waypoints from GPX
 					const { latitude, longitude, waypoints } = parseGpx(gpx_content);
 					const poiName = filename.replace(/\.gpx$/i, "");
+					log.push(`[1/4] Parsed GPX: ${waypoints.length} waypoints, first point lat=${latitude} lon=${longitude}`);
 
 					// Step 1: POST to /poi with JSON
+					const poiPayload = {
+						name: poiName,
+						location: null,
+						latitude,
+						longitude,
+						position: null,
+						description: null,
+						icon_id: 1,
+						timezone: null,
+						is_default_on: true,
+						poi_range: 100,
+						file: null,
+						meta: { waypoints },
+						type: "track",
+						children: [],
+						localisation: {},
+					};
+					log.push(`[2/4] POST ${VAMOOS_BASE_URL}/poi — payload (waypoints truncated): ${JSON.stringify({ ...poiPayload, meta: { waypoints: `[${waypoints.length} points]` } }, null, 2)}`);
+
 					const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
 						method: "POST",
 						headers: {
@@ -666,36 +687,25 @@ export class VamoosMCP extends McpAgent<Env> {
 							"X-Operator-Code": OPERATOR_CODE,
 							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 						},
-						body: JSON.stringify({
-							name: poiName,
-							location: null,
-							latitude,
-							longitude,
-							position: null,
-							description: null,
-							icon_id: 1,
-							timezone: null,
-							is_default_on: true,
-							poi_range: 100,
-							file: null,
-							meta: { waypoints },
-							type: "track",
-							children: [],
-							localisation: {},
-						}),
+						body: JSON.stringify(poiPayload),
 					});
 
 					const poiData = await safeJson(poiResponse);
+					log.push(`[2/4] POST /poi → HTTP ${poiResponse.status}\n${JSON.stringify(poiData, null, 2)}`);
 
 					if (!poiResponse.ok) {
 						return {
-							content: [{ type: "text", text: `Error creating POI: ${JSON.stringify(poiData, null, 2)}` }],
+							content: [{ type: "text", text: `=== FAILED at step 2/4 (create POI) ===\n${log.join("\n\n")}` }],
 						};
 					}
 
 					const poi = poiData as { id: number };
+					log.push(`[3/4] POI created with id=${poi.id}`);
 
 					// Step 2: Attach POI to the itinerary
+					const itinPayload = { vamoos_id, departure_date, return_date, pois: [{ id: poi.id, is_on: true }] };
+					log.push(`[4/4] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify(itinPayload, null, 2)}`);
+
 					const itinResponse = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
 						{
@@ -706,24 +716,26 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({ vamoos_id, departure_date, return_date, pois: [{ id: poi.id, is_on: true }] }),
+							body: JSON.stringify(itinPayload),
 						},
 					);
 
 					const itinData = await safeJson(itinResponse);
+					log.push(`[4/4] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
 
 					if (!itinResponse.ok) {
 						return {
-							content: [{ type: "text", text: `POI created (id: ${poi.id}), but error attaching to itinerary: ${JSON.stringify(itinData, null, 2)}` }],
+							content: [{ type: "text", text: `=== FAILED at step 4/4 (attach POI to itinerary) ===\n${log.join("\n\n")}` }],
 						};
 					}
 
 					return {
-						content: [{ type: "text", text: `GPX track "${poiName}" uploaded as POI (id: ${poi.id}, ${waypoints.length} waypoints) and attached to trip.\n${JSON.stringify(itinData, null, 2)}` }],
+						content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }],
 					};
 				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
 					return {
-						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+						content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }],
 					};
 				}
 			},
