@@ -161,16 +161,24 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **Why:** Testing confirmed that the Vamoos itinerary POST is a **full overwrite**, not a partial update. Any field omitted from the POST body is cleared. For example, uploading a background image without including the existing `pois` and `documents` in the payload will silently delete all POIs and documents from the trip.
 
-**Merge strategy per field:**
-- `pois` — array of `{ id, is_on }` objects: merge existing + new, **deduplicate by `id`** (new entry wins if same id appears twice)
-- `documents.travel` — array of `{ file_url, name }` objects: merge existing + new, **deduplicate by `file_url`** (new entry wins)
-- `locations` — array of `{ name, latitude, longitude }` objects: append new entries (no deduplication — location pins with the same name but different coordinates are valid)
-- `background` — scalar object: new value always replaces existing (intentional)
-- `departure_date`, `return_date`, `field1`, `field3` — scalars: new value takes precedence, but existing values are preserved if not supplied
+**Implementation pattern (confirmed 19 March 2026):** Spread the full existing record into the payload first, then overlay only the fields being changed:
+
+```
+body = { ...existing, vamoos_id, departure_date, return_date, <field being changed> }
+```
+
+This means any field Vamoos adds in future (`flights`, `extras`, etc.) survives automatically without code changes.
+
+**Three fields require array-merge logic rather than simple overwrite:**
+- `pois` — deduplicate by `id` (new entry wins if same id appears twice): `mergePois(existing, incoming)`
+- `documents.travel` — deduplicate by `file_url` (new entry wins): `mergeTravelDocs(existing, incoming)`
+- `locations` — append without deduplication (same name + different coords is valid): `[...existing, ...incoming]`
+
+**All other fields** (background, scalars, and any future unknown fields) are handled correctly by the spread — new value overwrites, existing values survive if not touched.
 
 **Exception:** `create_itinerary` intentionally creates a fresh record and does NOT fetch first. All other tools that call POST /itinerary must fetch first.
 
-**Helper:** A shared `fetchItinerary(operatorCode, referenceCode, token, baseUrl)` function handles the GET and returns parsed JSON (or a safe empty object `{}` on 404/error).
+**Helper:** `fetchItinerary(referenceCode, token)` handles the GET and returns parsed JSON (or a safe empty object `{}` on 404/error).
 
 ### 5.11 Detailed Step-by-Step Logging in GPX Tool
 **Decision:** The `upload_gpx_and_attach_to_itinerary` tool returns a full log of every step, including HTTP status codes and response bodies.
