@@ -259,21 +259,24 @@ All attempts failed. The API returned errors.
 
 ---
 
-## 7. Current State (18 March 2026)
+## 7. Current State (19 March 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
-- ✅ Upload HTML documents and attach to trips (rendered in Vamoos app)
+- ✅ Upload HTML documents and attach to trips (rendered in Vamoos app) — confirmed working 19 March 2026
 - ✅ Upload background images via S3
 - ✅ GPX tracks: parse, create POI with waypoints, attach to itinerary
 - ✅ POI appears in `get_itinerary` response
 - ✅ AI interview flow (SYSTEM_PROMPT.md) guides trip data capture
 - ✅ Auto-deploy on push via GitHub Actions
+- ✅ Background field round-trip mapping fixed (GET `file.s3_url` → POST `file_url`)
+- ✅ Vamoos API reference files added: VAMOOS_API_SPEC.txt, VAMOOS_FIELD_NOTES.md
 
 ### Under Investigation / Next Steps
-- 🔍 Verify GPX track displays correctly as a route line in the Vamoos mobile app (not just a pin)
-- 🔍 Confirm `type: "track"` with `meta.waypoints` is rendered as expected on the map
-- 🔍 Test with a real, large GPX file (the current test.gpx has only 3 points)
+- 🔍 Verify GPX tool uses fetch-then-merge correctly for `pois` array
+- 🔍 Verify `upload_poi` tool works with fetch-then-merge pattern
+- 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
+- 🔍 GPX track display in Vamoos mobile app not yet visually verified
 - ❓ The `upload_document` Puppeteer/PDF path is untested end-to-end after the HTML→direct-upload change
 
 ### Known Limitations
