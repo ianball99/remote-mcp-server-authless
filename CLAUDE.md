@@ -23,4 +23,4 @@ This means **commits pushed to the working `claude/...` branch are deployed imme
 
 **Repo:** `ianball99/claude-code-chatbot-v1` (public), deployed via Netlify.
 
-Netlify is confirmed to deploy from the `main` branch. Whether Netlify also deploys `claude/**` branches automatically (branch deploy previews) is **unconfirmed** — Netlify is not posting status checks back to GitHub so it cannot be verified without checking the Netlify dashboard directly. The observed pattern is that the `claude/` branch gets merged to `main`, which triggers the Netlify production deploy.
+Netlify deploys from `main` only (confirmed). The observed pattern: a commit lands on the `claude/` branch first, then is pushed/merged to `main` within minutes, which triggers the Netlify production deploy. The 4:38pm deploy on 18 March 2026 confirms this — `main` was updated 2 minutes after the same commit appeared on the claude branch.
