@@ -156,7 +156,23 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **Why:** Originally one tool was used for both. The AI kept using the wrong mode or getting confused. Splitting them with very explicit descriptions ("ALWAYS use this when YOU the assistant are generating content") fixed the routing. The tool descriptions are instructions to the model.
 
-### 5.10 Detailed Step-by-Step Logging in GPX Tool
+### 5.10 Itinerary Updates Must Fetch-Then-Merge (Confirmed 19 March 2026)
+**Decision:** Before POSTing any update to `/itinerary/{operator}/{ref}`, always GET the existing itinerary first, merge the new fields into the existing data, then POST the merged payload.
+
+**Why:** Testing confirmed that the Vamoos itinerary POST is a **full overwrite**, not a partial update. Any field omitted from the POST body is cleared. For example, uploading a background image without including the existing `pois` and `documents` in the payload will silently delete all POIs and documents from the trip.
+
+**Merge strategy per field:**
+- `pois` — array of `{ id, is_on }` objects: merge existing + new, **deduplicate by `id`** (new entry wins if same id appears twice)
+- `documents.travel` — array of `{ file_url, name }` objects: merge existing + new, **deduplicate by `file_url`** (new entry wins)
+- `locations` — array of `{ name, latitude, longitude }` objects: append new entries (no deduplication — location pins with the same name but different coordinates are valid)
+- `background` — scalar object: new value always replaces existing (intentional)
+- `departure_date`, `return_date`, `field1`, `field3` — scalars: new value takes precedence, but existing values are preserved if not supplied
+
+**Exception:** `create_itinerary` intentionally creates a fresh record and does NOT fetch first. All other tools that call POST /itinerary must fetch first.
+
+**Helper:** A shared `fetchItinerary(operatorCode, referenceCode, token, baseUrl)` function handles the GET and returns parsed JSON (or a safe empty object `{}` on 404/error).
+
+### 5.11 Detailed Step-by-Step Logging in GPX Tool
 **Decision:** The `upload_gpx_and_attach_to_itinerary` tool returns a full log of every step, including HTTP status codes and response bodies.
 
 **Why:** GPX upload involved significant debugging. Verbose logging in the tool response means when something goes wrong, Claude can report exactly which step failed and what the API returned, without needing to add print statements or redeploy.
