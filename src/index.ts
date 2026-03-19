@@ -154,10 +154,31 @@ const WRITABLE_ITINERARY_FIELDS = [
 	"storyboard", "notifications", "widgets",
 ] as const;
 
+// The GET response returns background as a full media-library node (with id, tag,
+// operator_id, file, path, created_at, etc.) but the POST schema only accepts a
+// small set of fields. Strip it down to just what POST accepts.
+const BACKGROUND_WRITABLE_FIELDS = ["file_url", "file_id", "library_node_id", "web_url", "children", "name"] as const;
+function sanitizeBackground(bg: unknown): unknown {
+	if (typeof bg === "string" || bg === null || bg === undefined) return bg;
+	if (typeof bg !== "object") return bg;
+	const out: Record<string, unknown> = {};
+	for (const key of BACKGROUND_WRITABLE_FIELDS) {
+		const val = (bg as Record<string, unknown>)[key];
+		if (val !== undefined) out[key] = val;
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function pickWritable(existing: Record<string, unknown>): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const key of WRITABLE_ITINERARY_FIELDS) {
-		if (existing[key] !== undefined) out[key] = existing[key];
+		if (existing[key] === undefined) continue;
+		if (key === "background") {
+			const sanitized = sanitizeBackground(existing[key]);
+			if (sanitized !== undefined) out[key] = sanitized;
+		} else {
+			out[key] = existing[key];
+		}
 	}
 	return out;
 }
