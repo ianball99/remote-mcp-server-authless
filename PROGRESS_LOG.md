@@ -4,6 +4,17 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 19 March 2026 (session 2 — housekeeping)
+
+- Rebuilt PROGRESS_LOG.md with full day-by-day history from git log (10–19 March)
+- Fixed CLAUDE.md: replaced all `main` references with `master` for this repo
+- Added session end checklist steps: merge `claude/` to `master`, merge chatbot `claude/` to `main`, delete merged branches
+- Deleted stale `main` branch (superseded by `master`)
+- Deleted merged `claude/` branches from both repos
+- Confirmed chatbot `claude/organize-sessions-projects-4F01z` was already fully merged
+
+---
+
 ## 19 March 2026
 
 ### Fetch-then-merge pattern
