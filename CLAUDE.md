@@ -18,14 +18,29 @@ At the end of every session, Claude must:
 
 1. **Update DESIGN_DOC.md** to reflect any changes made this session
 2. **Check with user** then update TODO.md — mark completed items, add newly discovered items
-3. **Push CLAUDE.md and DESIGN_DOC.md to `main`** if they were updated on a `claude/` branch
-4. **Check with user before merging** any `claude/` branch back to `main`
+3. **Update PROGRESS_LOG.md** with a summary of what was done today
+4. **Push all updated docs to `master`** using the GitHub PAT (ask user for PAT if not already set). Files to sync: `CLAUDE.md`, `DESIGN_DOC.md`, `TODO.md`, `PROGRESS_LOG.md`, and any new reference files
+5. **Check with user before merging** any `claude/` branch back to `master`
 
 ---
 
 ## Doc Sync Rule
 
-Whenever `CLAUDE.md` or `DESIGN_DOC.md` are updated on a `claude/` branch, they must also be pushed to `main` so the latest versions are always available at session start.
+Whenever `CLAUDE.md`, `DESIGN_DOC.md`, `PROGRESS_LOG.md` or other reference docs are updated on a `claude/` branch, they must also be pushed to `master` so the latest versions are always available at session start.
+
+**How to push docs to master with PAT:**
+```
+git remote set-url origin https://<PAT>@github.com/ianball99/remote-mcp-server-authless.git
+git checkout master
+git checkout <claude-branch> -- CLAUDE.md DESIGN_DOC.md TODO.md PROGRESS_LOG.md VAMOOS_API_SPEC.txt VAMOOS_FIELD_NOTES.md
+git commit -m "Sync docs to master"
+git push origin master
+git checkout <claude-branch>
+```
+
+## Progress Log
+
+**`PROGRESS_LOG.md`** tracks what was worked on each day. It must be updated **during the session** (not just at the end) since sessions may span multiple days. Add a dated entry at the top each day work is done.
 
 ---
 
