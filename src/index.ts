@@ -391,7 +391,12 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		);
 
 		const vData = await safeJson(vResponse);
-		return new Response(JSON.stringify({ ok: vResponse.ok, s3url, data: vData }), {
+		const responsePayload: Record<string, unknown> = { ok: vResponse.ok, s3url, data: vData };
+		if (!vResponse.ok) {
+			responsePayload.debug_background_from_get = existing.background;
+			responsePayload.debug_background_sent = itineraryBody.background;
+		}
+		return new Response(JSON.stringify(responsePayload), {
 			status: vResponse.ok ? 200 : vResponse.status,
 			headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
 		});
