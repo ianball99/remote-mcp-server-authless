@@ -6,9 +6,9 @@ At the start of every session, Claude must do the following **before any other w
 
 1. **Remind the user** to add the chatbot repo to the session: `ianball99/claude-code-chatbot-v1`
 2. **Ask the user for their GitHub Personal Access Token** (needed for pushing to repos)
-3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `main` on `ianball99/remote-mcp-server-authless`
-4. **If the session involves Vamoos API work**, also read **VAMOOS_API_SPEC.txt** and **VAMOOS_FIELD_NOTES.md** from `main` — these document the official API schema and confirmed GET/POST field mappings
-5. **Read TODO.md** (in this repo, `main` branch), show the user the open items, then **ask what they want to work on**
+3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `master` on `ianball99/remote-mcp-server-authless`
+4. **If the session involves Vamoos API work**, also read **VAMOOS_API_SPEC.txt** and **VAMOOS_FIELD_NOTES.md** from `master` — these document the official API schema and confirmed GET/POST field mappings
+5. **Read TODO.md** (in this repo, `master` branch), show the user the open items, then **ask what they want to work on**
 
 ---
 
@@ -73,7 +73,7 @@ The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deplo
 - `master`
 - any `claude/**` branch
 
-This means **commits pushed to the working `claude/...` branch are deployed immediately** — there is no need to merge to main first. Check Actions tab on GitHub to confirm a deploy succeeded after each push.
+This means **commits pushed to the working `claude/...` branch are deployed immediately** — there is no need to merge to `master` first. Check Actions tab on GitHub to confirm a deploy succeeded after each push.
 
 ## Deployment — Chatbot UI (separate repo)
 
