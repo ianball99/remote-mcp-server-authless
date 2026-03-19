@@ -28,6 +28,13 @@ At the end of every session, Claude must:
    ```
    git checkout main && git merge <claude-branch> && git push origin main
    ```
+7. **Delete merged `claude/` branches** from both repos to keep GitHub tidy:
+   ```
+   curl -X DELETE -H "Authorization: token <PAT>" \
+     https://api.github.com/repos/ianball99/remote-mcp-server-authless/git/refs/heads/<claude-branch>
+   curl -X DELETE -H "Authorization: token <PAT>" \
+     https://api.github.com/repos/ianball99/claude-code-chatbot-v1/git/refs/heads/<claude-branch>
+   ```
 
 ---
 
