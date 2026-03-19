@@ -7,7 +7,7 @@ At the start of every session, Claude must do the following **before any other w
 1. **Remind the user** to add the chatbot repo to the session: `ianball99/claude-code-chatbot-v1`
 2. **Ask the user for their GitHub Personal Access Token** (needed for pushing to repos)
 3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `main` on `ianball99/remote-mcp-server-authless`
-4. **Check TODO.md** (in this repo, `main` branch) and summarise open items for the user
+4. **Read TODO.md** (in this repo, `main` branch), show the user the open items, then **ask what they want to work on**
 
 ---
 
@@ -16,7 +16,7 @@ At the start of every session, Claude must do the following **before any other w
 At the end of every session, Claude must:
 
 1. **Update DESIGN_DOC.md** to reflect any changes made this session
-2. **Update TODO.md** — mark completed items, add new items discovered
+2. **Check with user** then update TODO.md — mark completed items, add newly discovered items
 3. **Push CLAUDE.md and DESIGN_DOC.md to `main`** if they were updated on a `claude/` branch
 4. **Check with user before merging** any `claude/` branch back to `main`
 
@@ -52,4 +52,9 @@ This means **commits pushed to the working `claude/...` branch are deployed imme
 
 **Repo:** `ianball99/claude-code-chatbot-v1` (public), deployed via Netlify.
 
-Netlify deploys from `main` only (confirmed). The observed pattern: a commit lands on the `claude/` branch first, then is pushed/merged to `main` within minutes, which triggers the Netlify production deploy. The 4:38pm deploy on 18 March 2026 confirms this — `main` was updated 2 minutes after the same commit appeared on the claude branch.
+Netlify deploys from `main` only (confirmed). The deployment flow is:
+1. Commit lands on the `claude/` branch first
+2. That branch is **manually merged/pushed to `main`** (this step is not automatic)
+3. The push to `main` triggers the Netlify production deploy
+
+The 4:38pm deploy on 18 March 2026 confirms this — `main` was updated 2 minutes after the same commit appeared on the claude branch. **Netlify will not deploy until `main` is updated manually.**
