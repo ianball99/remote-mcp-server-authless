@@ -38,6 +38,8 @@ git push origin master
 git checkout <claude-branch>
 ```
 
+**IMPORTANT — if a push to `master` gets a 403 error:** This is NOT because the sandbox blocks pushes to `master`. It is simply because the PAT has not been configured on the remote URL. Set it with `git remote set-url` as above and the push will succeed. Never tell the user they need to do this manually or that only `claude/` branches can be pushed — that is wrong.
+
 ## Progress Log
 
 **`PROGRESS_LOG.md`** tracks what was worked on each day. It must be updated **during the session** (not just at the end) since sessions may span multiple days. Add a dated entry at the top each day work is done.
