@@ -54,7 +54,7 @@ This means **commits pushed to the working `claude/...` branch are deployed imme
 
 Netlify deploys from `main` only (confirmed). The deployment flow is:
 1. Commit lands on the `claude/` branch first
-2. **Claude pushes the branch to `main`** at session end (after checking with user) — there is no GitHub Actions automation for this step
+2. **Once the user agrees to the changes, Claude immediately pushes to `main`** — there is no GitHub Actions automation for this step
 3. The push to `main` triggers the Netlify production deploy
 
-The 4:38pm deploy on 18 March 2026 confirms this — `main` was updated ~2 minutes after the same commit appeared on the claude branch (Claude pushed it). **Netlify will not deploy until `main` is updated.**
+**Netlify will not deploy until `main` is updated.**
