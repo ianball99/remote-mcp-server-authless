@@ -6,6 +6,19 @@ import { z } from "zod";
 const VAMOOS_BASE_URL = "https://live.vamoos.com/v3";
 const OPERATOR_CODE = "alisdair";
 
+function parseGpx(gpxContent: string): { latitude: string; longitude: string; waypoints: Array<{ latitude: string; longitude: string }> } {
+	const waypointRegex = /<trkpt\s+lat="([^"]+)"\s+lon="([^"]+)"/g;
+	const waypoints: Array<{ latitude: string; longitude: string }> = [];
+	let match: RegExpExecArray | null;
+	while ((match = waypointRegex.exec(gpxContent)) !== null) {
+		waypoints.push({ latitude: match[1], longitude: match[2] });
+	}
+	if (waypoints.length === 0) {
+		throw new Error("No track points found in GPX content");
+	}
+	return { latitude: waypoints[0].latitude, longitude: waypoints[0].longitude, waypoints };
+}
+
 function base64ToBytes(base64: string): Uint8Array {
 	const binary = atob(base64);
 	const bytes = new Uint8Array(binary.length);
@@ -127,6 +140,102 @@ async function generatePdfFromHtml(html: string, env: Env): Promise<Uint8Array> 
 	}
 }
 
+// ── Fetch-then-merge helpers ────────────────────────────────────────────────
+
+type PoiRef = { id: number; is_on: boolean };
+type TravelDoc = { file_url: string; name: string };
+
+// Fields the Vamoos POST /itinerary API accepts. Read-only server fields
+// (id, operator_id, version, created_at, flights, etc.) must NOT be sent back.
+const WRITABLE_ITINERARY_FIELDS = [
+	"vamoos_id", "departure_date", "return_date",
+	"field1", "field2", "field3", "field4", "field5",
+	"background", "pois", "documents", "locations",
+	"storyboard", "notifications", "widgets",
+] as const;
+
+// The GET response returns background as a full media-library node (with id, tag,
+// operator_id, file, path, created_at, etc.) but the POST schema only accepts a
+// small set of fields. Strip it down to just what POST accepts.
+// NOTE: the GET response uses "file" for the URL; we map it to "file_url" for POST.
+const BACKGROUND_WRITABLE_FIELDS = ["file_url", "file_id", "library_node_id", "web_url", "children"] as const;
+function sanitizeBackground(bg: unknown): unknown {
+	if (typeof bg === "string" || bg === null || bg === undefined) return bg;
+	if (typeof bg !== "object") return bg;
+	const node = bg as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const key of BACKGROUND_WRITABLE_FIELDS) {
+		if (node[key] !== undefined) out[key] = node[key];
+	}
+	// GET response stores the URL in "file.s3_url" — map it to "file_url" for POST
+	if (out.file_url === undefined && typeof node.file === "object" && node.file !== null) {
+		const f = node.file as Record<string, unknown>;
+		if (typeof f.s3_url === "string") out.file_url = f.s3_url;
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function pickWritable(existing: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const key of WRITABLE_ITINERARY_FIELDS) {
+		if (existing[key] === undefined) continue;
+		if (key === "background") {
+			const sanitized = sanitizeBackground(existing[key]);
+			if (sanitized !== undefined) out[key] = sanitized;
+		} else {
+			out[key] = existing[key];
+		}
+	}
+	return out;
+}
+
+async function fetchItinerary(referenceCode: string, token: string): Promise<Record<string, unknown>> {
+	const response = await fetch(
+		`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
+		{
+			method: "GET",
+			headers: {
+				Accept: "application/json",
+				"X-Operator-Code": OPERATOR_CODE,
+				"X-User-Access-Token": token,
+			},
+		},
+	);
+	if (!response.ok) return {};
+	const data = await safeJson(response);
+	return typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+}
+
+function getExistingPois(existing: Record<string, unknown>): PoiRef[] {
+	const pois = existing.pois;
+	if (!Array.isArray(pois)) return [];
+	return pois.filter((p): p is PoiRef => typeof p === "object" && p !== null && typeof (p as PoiRef).id === "number");
+}
+
+function getExistingTravelDocs(existing: Record<string, unknown>): TravelDoc[] {
+	const docs = existing.documents;
+	if (typeof docs !== "object" || docs === null) return [];
+	const travel = (docs as Record<string, unknown>).travel;
+	if (!Array.isArray(travel)) return [];
+	return travel.filter((d): d is TravelDoc => typeof d === "object" && d !== null && typeof (d as TravelDoc).file_url === "string");
+}
+
+function mergePois(existing: PoiRef[], incoming: PoiRef[]): PoiRef[] {
+	const map = new Map<number, PoiRef>();
+	for (const p of existing) map.set(p.id, p);
+	for (const p of incoming) map.set(p.id, p); // new wins on same id
+	return Array.from(map.values());
+}
+
+function mergeTravelDocs(existing: TravelDoc[], incoming: TravelDoc[]): TravelDoc[] {
+	const map = new Map<string, TravelDoc>();
+	for (const d of existing) map.set(d.file_url, d);
+	for (const d of incoming) map.set(d.file_url, d); // new wins on same file_url
+	return Array.from(map.values());
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 const CORS_HEADERS = {
 	"Access-Control-Allow-Origin": "*",
 	"Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -166,18 +275,104 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			);
 		}
 
-		const { url, s3url } = await getS3UploadUrl(filename, contentType, env.VAMOOS_API_TOKEN);
 		const fileData = new Uint8Array(await file.arrayBuffer());
+
+		// GPX track — parse waypoints and create a POI (no S3 upload needed)
+		if (uploadType === "gpx") {
+			const gpxText = new TextDecoder().decode(fileData);
+			const { latitude, longitude, waypoints } = parseGpx(gpxText);
+			const poiName = filename.replace(/\.gpx$/i, "");
+
+			const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json",
+					"X-Operator-Code": OPERATOR_CODE,
+					"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+				},
+				body: JSON.stringify({
+					name: poiName,
+					location: null,
+					latitude,
+					longitude,
+					position: null,
+					description: null,
+					icon_id: 1,
+					timezone: null,
+					is_default_on: true,
+					poi_range: 100,
+					file: null,
+					meta: { waypoints },
+					type: "track",
+					children: [],
+					localisation: {},
+				}),
+			});
+
+			const poiData = await safeJson(poiResponse);
+			if (!poiResponse.ok) {
+				return new Response(JSON.stringify({ ok: false, error: `Failed to create POI: ${JSON.stringify(poiData)}` }), {
+					status: poiResponse.status,
+					headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+				});
+			}
+
+			const poi = poiData as { id: number };
+
+			// Fetch existing itinerary, spread all fields, merge pois/locations
+			const existing = await fetchItinerary(referenceCode, env.VAMOOS_API_TOKEN);
+			const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
+			const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+			const mergedLocations = [...existingLocations, { name: `Location-${poiName}`, latitude, longitude }];
+
+			const gpxItinBody: Record<string, unknown> = {
+				...pickWritable(existing),
+				vamoos_id: vamoosId,
+				departure_date: departureDate,
+				return_date: returnDate,
+				pois: mergedPois,
+				locations: mergedLocations,
+			};
+
+			const itinResponse = await fetch(
+				`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json",
+						"X-Operator-Code": OPERATOR_CODE,
+						"X-User-Access-Token": env.VAMOOS_API_TOKEN,
+					},
+					body: JSON.stringify(gpxItinBody),
+				},
+			);
+
+			const itinData = await safeJson(itinResponse);
+			return new Response(
+				JSON.stringify({ ok: itinResponse.ok, message: `GPX track "${poiName}" created as POI (id: ${poi.id}, ${waypoints.length} waypoints) and attached to trip.`, data: itinData }),
+				{ status: itinResponse.ok ? 200 : itinResponse.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+			);
+		}
+
+		// Background image or document — upload to S3 then attach to itinerary
+		const [existing, { url, s3url }] = await Promise.all([
+			fetchItinerary(referenceCode, env.VAMOOS_API_TOKEN),
+			getS3UploadUrl(filename, contentType, env.VAMOOS_API_TOKEN),
+		]);
 		await uploadToS3(url, fileData, contentType);
 
+		// Spread all existing fields, then apply our change on top
 		const itineraryBody: Record<string, unknown> = {
+			...pickWritable(existing),
 			vamoos_id: vamoosId,
 			departure_date: departureDate,
 			return_date: returnDate,
 		};
 
 		if (uploadType === "document") {
-			itineraryBody.documents = { travel: [{ file_url: s3url, name: documentName }] };
+			itineraryBody.documents = { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: documentName }]) };
 		} else {
 			itineraryBody.background = { file_url: s3url, name: "Background Image" };
 		}
@@ -317,7 +512,10 @@ export class VamoosMCP extends McpAgent<Env> {
 					.describe("Name / Location (optional)"),
 			},
 			async ({ reference_code, vamoos_id, departure_date, return_date, field1, field3 }) => {
-				const body: Record<string, unknown> = { vamoos_id, departure_date, return_date };
+				const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+
+				// Spread all existing fields so nothing is lost, then apply our changes on top
+				const body: Record<string, unknown> = { ...pickWritable(existing), vamoos_id, departure_date, return_date };
 				if (field1 !== undefined) body.field1 = field1;
 				if (field3 !== undefined) body.field3 = field3;
 
@@ -487,9 +685,21 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 			async ({ reference_code, vamoos_id, departure_date, return_date, file_data, filename, content_type }) => {
 				try {
-					const { url, s3url } = await getS3UploadUrl(filename, content_type, this.env.VAMOOS_API_TOKEN);
+					const [existing, { url, s3url }] = await Promise.all([
+						fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN),
+						getS3UploadUrl(filename, content_type, this.env.VAMOOS_API_TOKEN),
+					]);
 
 					await uploadToS3(url, base64ToBytes(file_data), content_type);
+
+					// Spread all existing fields, then replace background
+					const body: Record<string, unknown> = {
+						...pickWritable(existing),
+						vamoos_id,
+						departure_date,
+						return_date,
+						background: { file_url: s3url, name: "Background Image" },
+					};
 
 					const response = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
@@ -501,15 +711,7 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({
-								vamoos_id,
-								departure_date,
-								return_date,
-								background: {
-									file_url: s3url,
-									name: "Background Image",
-								},
-							}),
+							body: JSON.stringify(body),
 						},
 					);
 
@@ -566,8 +768,19 @@ export class VamoosMCP extends McpAgent<Env> {
 				try {
 					const html = wrapHtmlIfNeeded(markdownToHtml(markdown_content), document_name);
 					const fileBytes = await generatePdfFromHtml(html, this.env);
-					const { url, s3url } = await getS3UploadUrl("document.pdf", "application/pdf", this.env.VAMOOS_API_TOKEN);
+					const [existing, { url, s3url }] = await Promise.all([
+						fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN),
+						getS3UploadUrl("document.pdf", "application/pdf", this.env.VAMOOS_API_TOKEN),
+					]);
 					await uploadToS3(url, fileBytes, "application/pdf");
+
+					const legacyBody: Record<string, unknown> = {
+						...pickWritable(existing),
+						vamoos_id,
+						departure_date,
+						return_date,
+						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+					};
 
 					const response = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
@@ -579,14 +792,7 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({
-								vamoos_id,
-								departure_date,
-								return_date,
-								documents: {
-									travel: [{ file_url: s3url, name: document_name }],
-								},
-							}),
+							body: JSON.stringify(legacyBody),
 						},
 					);
 
@@ -612,7 +818,7 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a GPX track file as a POI and attach it to an itinerary
 		this.server.tool(
 			"upload_gpx_and_attach_to_itinerary",
-			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content as a string.",
+			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content and the original filename.",
 			{
 				reference_code: z
 					.string()
@@ -634,34 +840,79 @@ export class VamoosMCP extends McpAgent<Env> {
 				gpx_content: z
 					.string()
 					.describe("Raw GPX XML content to upload"),
+				filename: z
+					.string()
+					.describe("Original filename of the GPX file (e.g. mytrack.gpx), used as the POI name"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content }) => {
+			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content, filename }) => {
+				const log: string[] = [];
 				try {
-					// Step 1: POST GPX to create POI(s)
-					const gpxResponse = await fetch(`${VAMOOS_BASE_URL}/poi/gpx`, {
+					// Parse waypoints from GPX
+					const { latitude, longitude, waypoints } = parseGpx(gpx_content);
+					const poiName = filename.replace(/\.gpx$/i, "");
+					log.push(`[1/4] Parsed GPX: ${waypoints.length} waypoints, first point lat=${latitude} lon=${longitude}`);
+
+					// Step 1: POST to /poi with JSON
+					const poiPayload = {
+						name: poiName,
+						location: null,
+						latitude,
+						longitude,
+						position: null,
+						description: null,
+						icon_id: 1,
+						timezone: null,
+						is_default_on: true,
+						poi_range: 100,
+						file: null,
+						meta: { waypoints },
+						type: "track",
+						children: [],
+						localisation: {},
+					};
+					log.push(`[2/4] POST ${VAMOOS_BASE_URL}/poi — payload (waypoints truncated): ${JSON.stringify({ ...poiPayload, meta: { waypoints: `[${waypoints.length} points]` } }, null, 2)}`);
+
+					const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
 						method: "POST",
 						headers: {
-							"Content-Type": "application/gpx+xml",
+							"Content-Type": "application/json",
 							Accept: "application/json",
 							"X-Operator-Code": OPERATOR_CODE,
 							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 						},
-						body: gpx_content,
+						body: JSON.stringify(poiPayload),
 					});
 
-					const gpxData = await safeJson(gpxResponse);
+					const poiData = await safeJson(poiResponse);
+					log.push(`[2/4] POST /poi → HTTP ${poiResponse.status}\n${JSON.stringify(poiData, null, 2)}`);
 
-					if (!gpxResponse.ok) {
+					if (!poiResponse.ok) {
 						return {
-							content: [{ type: "text", text: `Error uploading GPX: ${JSON.stringify(gpxData, null, 2)}` }],
+							content: [{ type: "text", text: `=== FAILED at step 2/4 (create POI) ===\n${log.join("\n\n")}` }],
 						};
 					}
 
-					// Response is an array of poi objects
-					const pois = Array.isArray(gpxData) ? gpxData : [gpxData];
-					const poiIds = (pois as Array<{ id: number }>).map((p) => ({ id: p.id, is_on: true }));
+					const poi = poiData as { id: number };
+					log.push(`[3/4] POI created with id=${poi.id}`);
 
-					// Step 2: Attach POIs to the itinerary
+					// Step 2: Fetch existing itinerary, spread all fields, merge pois/locations
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const locationName = `Location-${poiName}`;
+					const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
+					const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
+
+					const itinPayload: Record<string, unknown> = {
+						...pickWritable(existing),
+						vamoos_id,
+						departure_date,
+						return_date,
+						pois: mergedPois,
+						locations: mergedLocations,
+					};
+
+					log.push(`[4/4] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify({ ...itinPayload, pois: `[${mergedPois.length} pois]`, locations: `[${mergedLocations.length} locations]` }, null, 2)}`);
+
 					const itinResponse = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
 						{
@@ -672,24 +923,26 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({ vamoos_id, departure_date, return_date, pois: poiIds }),
+							body: JSON.stringify(itinPayload),
 						},
 					);
 
 					const itinData = await safeJson(itinResponse);
+					log.push(`[4/4] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
 
 					if (!itinResponse.ok) {
 						return {
-							content: [{ type: "text", text: `GPX uploaded (${pois.length} POI(s) created: ${poiIds.map((p) => p.id).join(", ")}), but error attaching to itinerary: ${JSON.stringify(itinData, null, 2)}` }],
+							content: [{ type: "text", text: `=== FAILED at step 4/4 (attach POI to itinerary) ===\n${log.join("\n\n")}` }],
 						};
 					}
 
 					return {
-						content: [{ type: "text", text: `GPX track uploaded. Created ${pois.length} POI(s) [${poiIds.map((p) => p.id).join(", ")}] and attached to trip.\n${JSON.stringify(itinData, null, 2)}` }],
+						content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }],
 					};
 				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
 					return {
-						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+						content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }],
 					};
 				}
 			},
@@ -729,8 +982,21 @@ export class VamoosMCP extends McpAgent<Env> {
 					const fullHtml = wrapHtmlIfNeeded(html_content, document_name);
 					const fileBytes = new TextEncoder().encode(fullHtml);
 					const safeFilename = document_name.replace(/[^a-zA-Z0-9 _-]/g, "").trim() + ".html";
-					const { url, s3url } = await getS3UploadUrl(safeFilename, "text/html", this.env.VAMOOS_API_TOKEN);
+
+					const [existing, { url, s3url }] = await Promise.all([
+						fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN),
+						getS3UploadUrl(safeFilename, "text/html", this.env.VAMOOS_API_TOKEN),
+					]);
 					await uploadToS3(url, fileBytes, "text/html");
+
+					// Spread all existing fields, then merge documents
+					const body: Record<string, unknown> = {
+						...pickWritable(existing),
+						vamoos_id,
+						departure_date,
+						return_date,
+						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+					};
 
 					const response = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
@@ -742,14 +1008,7 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({
-								vamoos_id,
-								departure_date,
-								return_date,
-								documents: {
-									travel: [{ file_url: s3url, name: document_name }],
-								},
-							}),
+							body: JSON.stringify(body),
 						},
 					);
 
@@ -844,8 +1103,20 @@ export class VamoosMCP extends McpAgent<Env> {
 						};
 					}
 
-					const { url, s3url } = await getS3UploadUrl(uploadFilename, uploadContentType, this.env.VAMOOS_API_TOKEN);
+					const [existing, { url, s3url }] = await Promise.all([
+						fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN),
+						getS3UploadUrl(uploadFilename, uploadContentType, this.env.VAMOOS_API_TOKEN),
+					]);
 					await uploadToS3(url, fileBytes, uploadContentType);
+
+					// Spread all existing fields, then merge documents
+					const body: Record<string, unknown> = {
+						...pickWritable(existing),
+						vamoos_id,
+						departure_date,
+						return_date,
+						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+					};
 
 					const response = await fetch(
 						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
@@ -857,14 +1128,7 @@ export class VamoosMCP extends McpAgent<Env> {
 								"X-Operator-Code": OPERATOR_CODE,
 								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
 							},
-							body: JSON.stringify({
-								vamoos_id,
-								departure_date,
-								return_date,
-								documents: {
-									travel: [{ file_url: s3url, name: document_name }],
-								},
-							}),
+							body: JSON.stringify(body),
 						},
 					);
 
