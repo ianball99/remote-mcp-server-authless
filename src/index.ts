@@ -167,9 +167,10 @@ function sanitizeBackground(bg: unknown): unknown {
 	for (const key of BACKGROUND_WRITABLE_FIELDS) {
 		if (node[key] !== undefined) out[key] = node[key];
 	}
-	// GET response stores the URL in "file" — map it to "file_url" for POST
-	if (out.file_url === undefined && node.file !== undefined) {
-		out.file_url = node.file;
+	// GET response stores the URL in "file.s3_url" — map it to "file_url" for POST
+	if (out.file_url === undefined && typeof node.file === "object" && node.file !== null) {
+		const f = node.file as Record<string, unknown>;
+		if (typeof f.s3_url === "string") out.file_url = f.s3_url;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -391,12 +392,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		);
 
 		const vData = await safeJson(vResponse);
-		const responsePayload: Record<string, unknown> = { ok: vResponse.ok, s3url, data: vData };
-		if (!vResponse.ok) {
-			responsePayload.debug_background_from_get = existing.background;
-			responsePayload.debug_background_sent = itineraryBody.background;
-		}
-		return new Response(JSON.stringify(responsePayload), {
+		return new Response(JSON.stringify({ ok: vResponse.ok, s3url, data: vData }), {
 			status: vResponse.ok ? 200 : vResponse.status,
 			headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
 		});
@@ -1140,7 +1136,7 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					if (!response.ok) {
 						return {
-							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}\n\nDEBUG raw background from GET: ${JSON.stringify(existing.background, null, 2)}\nDEBUG body.background sent: ${JSON.stringify(body.background, null, 2)}` }],
+							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}` }],
 						};
 					}
 
