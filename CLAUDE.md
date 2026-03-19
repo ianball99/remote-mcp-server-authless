@@ -20,7 +20,14 @@ At the end of every session, Claude must:
 2. **Check with user** then update TODO.md — mark completed items, add newly discovered items
 3. **Update PROGRESS_LOG.md** with a summary of what was done today
 4. **Push all updated docs to `master`** using the GitHub PAT (ask user for PAT if not already set). Files to sync: `CLAUDE.md`, `DESIGN_DOC.md`, `TODO.md`, `PROGRESS_LOG.md`, and any new reference files
-5. **Check with user before merging** any `claude/` branch back to `master`
+5. **Check with user, then merge the `claude/` branch back to `master`** (this repo). Use:
+   ```
+   git checkout master && git merge <claude-branch> && git push origin master
+   ```
+6. **Check with user, then merge any chatbot `claude/` branch back to `main`** (`ianball99/claude-code-chatbot-v1`). This triggers the Netlify production deploy. Use:
+   ```
+   git checkout main && git merge <claude-branch> && git push origin main
+   ```
 
 ---
 
