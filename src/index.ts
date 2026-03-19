@@ -145,6 +145,23 @@ async function generatePdfFromHtml(html: string, env: Env): Promise<Uint8Array> 
 type PoiRef = { id: number; is_on: boolean };
 type TravelDoc = { file_url: string; name: string };
 
+// Fields the Vamoos POST /itinerary API accepts. Read-only server fields
+// (id, operator_id, version, created_at, flights, etc.) must NOT be sent back.
+const WRITABLE_ITINERARY_FIELDS = [
+	"vamoos_id", "departure_date", "return_date",
+	"field1", "field2", "field3", "field4", "field5",
+	"background", "pois", "documents", "locations",
+	"storyboard", "notifications", "widgets",
+] as const;
+
+function pickWritable(existing: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const key of WRITABLE_ITINERARY_FIELDS) {
+		if (existing[key] !== undefined) out[key] = existing[key];
+	}
+	return out;
+}
+
 async function fetchItinerary(referenceCode: string, token: string): Promise<Record<string, unknown>> {
 	const response = await fetch(
 		`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(referenceCode)}`,
@@ -283,7 +300,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			const mergedLocations = [...existingLocations, { name: `Location-${poiName}`, latitude, longitude }];
 
 			const gpxItinBody: Record<string, unknown> = {
-				...existing,
+				...pickWritable(existing),
 				vamoos_id: vamoosId,
 				departure_date: departureDate,
 				return_date: returnDate,
@@ -321,7 +338,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 
 		// Spread all existing fields, then apply our change on top
 		const itineraryBody: Record<string, unknown> = {
-			...existing,
+			...pickWritable(existing),
 			vamoos_id: vamoosId,
 			departure_date: departureDate,
 			return_date: returnDate,
@@ -471,7 +488,7 @@ export class VamoosMCP extends McpAgent<Env> {
 				const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
 
 				// Spread all existing fields so nothing is lost, then apply our changes on top
-				const body: Record<string, unknown> = { ...existing, vamoos_id, departure_date, return_date };
+				const body: Record<string, unknown> = { ...pickWritable(existing), vamoos_id, departure_date, return_date };
 				if (field1 !== undefined) body.field1 = field1;
 				if (field3 !== undefined) body.field3 = field3;
 
@@ -650,7 +667,7 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					// Spread all existing fields, then replace background
 					const body: Record<string, unknown> = {
-						...existing,
+						...pickWritable(existing),
 						vamoos_id,
 						departure_date,
 						return_date,
@@ -731,7 +748,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					await uploadToS3(url, fileBytes, "application/pdf");
 
 					const legacyBody: Record<string, unknown> = {
-						...existing,
+						...pickWritable(existing),
 						vamoos_id,
 						departure_date,
 						return_date,
@@ -859,7 +876,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
 
 					const itinPayload: Record<string, unknown> = {
-						...existing,
+						...pickWritable(existing),
 						vamoos_id,
 						departure_date,
 						return_date,
@@ -947,7 +964,7 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					// Spread all existing fields, then merge documents
 					const body: Record<string, unknown> = {
-						...existing,
+						...pickWritable(existing),
 						vamoos_id,
 						departure_date,
 						return_date,
@@ -1067,7 +1084,7 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					// Spread all existing fields, then merge documents
 					const body: Record<string, unknown> = {
-						...existing,
+						...pickWritable(existing),
 						vamoos_id,
 						departure_date,
 						return_date,

@@ -161,20 +161,21 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **Why:** Testing confirmed that the Vamoos itinerary POST is a **full overwrite**, not a partial update. Any field omitted from the POST body is cleared. For example, uploading a background image without including the existing `pois` and `documents` in the payload will silently delete all POIs and documents from the trip.
 
-**Implementation pattern (confirmed 19 March 2026):** Spread the full existing record into the payload first, then overlay only the fields being changed:
+**Implementation pattern (confirmed 19 March 2026, corrected same day):** Fetch the existing record, extract only known-writable fields via `pickWritable()`, then overlay the new values:
 
 ```
-body = { ...existing, vamoos_id, departure_date, return_date, <field being changed> }
+body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <field being changed> }
 ```
 
-This means any field Vamoos adds in future (`flights`, `extras`, etc.) survives automatically without code changes.
+**Do NOT spread `existing` directly.** The GET response contains read-only server fields (`id`, `operator_id`, `version`, `is_current_version`, `created_at`, `updated_at`, `flights`, `downloads`, `routing`, `preview_link`, etc.) that the POST endpoint rejects with `additionalProperties.openapi.validation` errors.
+
+`pickWritable()` whitelists only the fields the POST API accepts:
+`vamoos_id`, `departure_date`, `return_date`, `field1`–`field5`, `background`, `pois`, `documents`, `locations`, `storyboard`, `notifications`, `widgets`.
 
 **Three fields require array-merge logic rather than simple overwrite:**
 - `pois` — deduplicate by `id` (new entry wins if same id appears twice): `mergePois(existing, incoming)`
 - `documents.travel` — deduplicate by `file_url` (new entry wins): `mergeTravelDocs(existing, incoming)`
 - `locations` — append without deduplication (same name + different coords is valid): `[...existing, ...incoming]`
-
-**All other fields** (background, scalars, and any future unknown fields) are handled correctly by the spread — new value overwrites, existing values survive if not touched.
 
 **Exception:** `create_itinerary` intentionally creates a fresh record and does NOT fetch first. All other tools that call POST /itinerary must fetch first.
 
