@@ -483,12 +483,14 @@ export class VamoosMCP extends McpAgent<Env> {
 				if (field1 !== undefined) body.field1 = field1;
 				if (field3 !== undefined) body.field3 = field3;
 
-				// Preserve existing pois, documents, and background
+				// Preserve existing pois, documents, background, and locations
 				const existingPois = getExistingPois(existing);
 				if (existingPois.length > 0) body.pois = existingPois;
 				const existingDocs = getExistingTravelDocs(existing);
 				if (existingDocs.length > 0) body.documents = { travel: existingDocs };
 				if (existing.background) body.background = existing.background;
+				const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+				if (existingLocations.length > 0) body.locations = existingLocations;
 
 				const response = await fetch(
 					`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
