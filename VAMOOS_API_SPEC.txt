@@ -1,0 +1,410 @@
+openapi: 3.0.3 info:   title: Vamoos Core API   description: Core APIs for the Vamoos Platform   contact:     name: API Support     email: integration@vamoos.com   version: 5.0.20251003  servers:   - url: https://live.vamoos.com/v3   - url: https://uat.vamoos.com   - url: https://staging.vamoos.com   - url: http://localhost:3000  paths:   # ITINERARY ENDPOINTS    /itinerary:     parameters: &listParams       - &paramArchived         name: archived         in: query         description: Whether to show deleted entries or not         schema:           type: string           enum: ["on", "off", "only"]           default: "off"       - &paramCount         name: count         in: query         description: Number of nodes to return per page         schema:           type: integer           minimum: 1       - &paramPage         name: page         in: query         schema:           type: integer           minimum: 1       - name: search         description: Search table content for string         in: query         schema:           type: string       - name: order_by         in: query         schema:           type: string           default: "updated_at"           enum:             [               "id",               "reference_code",               "field1",               "field2",               "field3",               "field4",               "operator_code",               "client_reference",               "departure_date",               "return_date",               "timezone",               "updated_at",               "created_at",               "original_created_at",               "downloads",             ]       - &paramOrder         name: order         in: query         schema:           type: string           default: "desc"           enum: ["asc", "desc"]       - name: type         in: query         schema:           type: string           description: Type of itinerary, e.g. stay, trip       - name: f         in: query         schema:           type: object           additionalProperties:             oneOf:               - type: string               - type: array                 items:                   type: string           description: Stringified JSON for filter     get:       summary: Get list of itineraries for current operator       description: Lists all itineraries the current user has access to       x-vamoos-scope: operators       x-vamoos-required-access: read       tags:         - Itinerary       responses:         200:           description: List of itineraries           content:             application/json:               schema:                 $ref: "#/components/schemas/itinerary_list"    /itinerary/{operator_code}/{reference_code}:     get: &itineraryGet       summary: Get the current default itinerary version for a Vamoos reference       x-vamoos-scope: vamoos_list       x-vamoos-required-access: read       tags:         - Basics         - Itinerary       responses:         200:           description: Return Vamoos structure           content:             application/json:               schema:                 $ref: "#/components/schemas/itinerary_read"     post: &itineraryPost       summary: Add/replace default itinerary for a Vamoos reference       x-vamoos-scope: vamoos_list       tags:         - Basics         - Itinerary       requestBody:         content:           application/json:             schema:               $ref: "#/components/schemas/itinerary_write"        responses:         200:           description: Resulting itinerary object           content:             application/json:               schema:                 $ref: "#/components/schemas/itinerary_read"
+
+components:
+  schemas:
+
+    # -----------------------------------------------------------------------
+    # LIBRARY NODE UPLOAD (what POST accepts for background, documents, etc.)
+    # -----------------------------------------------------------------------
+    # anyOf the following:
+
+    library_node_upload_object:
+      # Use when you have a library_node_id
+      type: object
+      required: [library_node_id]
+      properties:
+        library_node_id: {type: integer}
+        name: {type: string}
+        icon_id: {type: integer}
+        is_public: {type: boolean}
+      additionalProperties: false
+
+    library_node_folder_object:
+      # Use for folder nodes (NOT for media uploads)
+      type: object
+      required: [children, name]
+      properties:
+        name: {type: string}
+        icon_id: {type: integer}
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/library_node_upload"
+      additionalProperties: false
+
+    file_id_upload_object:
+      # Use when you have a file_id (permanent file reference)
+      type: object
+      required: [file_id]
+      properties:
+        file_id: {type: integer, description: "ID of file (permanent)"}
+        name: {type: string}
+        icon_id: {type: integer}
+        is_public: {type: boolean}
+      additionalProperties: false
+
+    file_url_upload_object:
+      # Use after uploading to S3 via /file/upload_url
+      type: object
+      required: [file_url]
+      properties:
+        file_url:
+          type: string
+          description: "Internal Vamoos S3 URL (s3://vamoos-live/...) returned by /file/upload_url"
+        name: {type: string}
+        icon_id: {type: integer}
+        is_public: {type: boolean}
+      additionalProperties: false
+
+    web_url_upload_object:
+      # Use for web links to open in-app
+      type: object
+      required: [web_url]
+      properties:
+        web_url: {type: string}
+        name: {type: string}
+        icon_id: {type: integer}
+      additionalProperties: false
+
+    string_upload_object:
+      type: string
+      deprecated: true
+      description: "Deprecated. Same as file_url_upload_object without name/icon_id."
+
+    library_node_upload:
+      description: "Options for adding static assets (used for background, documents, etc.)"
+      anyOf:
+        - $ref: "#/components/schemas/library_node_upload_object"
+        - $ref: "#/components/schemas/library_node_folder_object"
+        - $ref: "#/components/schemas/file_id_upload_object"
+        - $ref: "#/components/schemas/file_url_upload_object"
+        - $ref: "#/components/schemas/web_url_upload_object"
+        - $ref: "#/components/schemas/string_upload_object"
+
+    # -----------------------------------------------------------------------
+    # LIBRARY NODE READ (what GET returns for background, documents, etc.)
+    # -----------------------------------------------------------------------
+    library_node_read:
+      type: object
+      properties:
+        id: {type: integer}
+        tag: {type: integer, nullable: true, deprecated: true}
+        operator_id: {type: integer}
+        name: {type: string}
+        description: {type: string}
+        file:
+          $ref: "#/components/schemas/file_read"
+          description: "Nested file object — contains s3_url, https_url, mime_type, variants, etc."
+        position: {type: integer}
+        remote_url: {type: string}
+        icon_id: {type: integer}
+        is_folder: {type: boolean}
+        path: {type: string}
+        alias_for_id: {type: string}
+        created_by: {type: integer}
+        mime_type: {type: string}
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/library_node_read"
+        meta: {type: object}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+
+    file_read:
+      type: object
+      properties:
+        id: {type: integer}
+        operator_id: {type: integer}
+        mime_type: {type: string}
+        https_url: {type: string, description: "Signed HTTPS CDN URL (expires)"}
+        s3_url: {type: string, description: "Internal S3 URL (use this to round-trip back to POST as file_url)"}
+        short_name: {type: string}
+        variants:
+          type: object
+          description: "Processed variants e.g. app, thumb, app_avif"
+          additionalProperties:
+            $ref: "#/components/schemas/file_variant"
+        created_by: {type: integer}
+        meta: {type: object}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        is_public: {type: boolean}
+      additionalProperties: false
+
+    file_variant:
+      type: object
+      properties:
+        width: {type: integer}
+        height: {type: integer}
+        s3_url: {type: string}
+        https_url: {type: string}
+        mime_type: {type: string}
+
+    # -----------------------------------------------------------------------
+    # ITINERARY WRITE (POST body)
+    # -----------------------------------------------------------------------
+    itinerary_write:
+      type: object
+      properties:
+        departure_date: {type: string, format: date}
+        return_date: {type: string, format: date}
+        timezone: {type: string, maxLength: 64, default: "Europe/London"}
+        vamoos_id:
+          type: integer
+          description: "REQUIRED FOR UPDATES. Constant across versions."
+        field1: {type: string, maxLength: 128, nullable: true}
+        field2: {type: string, maxLength: 128}
+        field3: {type: string, maxLength: 128}
+        field4: {type: string, maxLength: 128}
+        background:
+          $ref: "#/components/schemas/library_node_upload"
+          description: "Required except for additional translations. Use file_url_upload_object with s3_url from /file/upload_url"
+        locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/location_write"
+        pois:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              is_on: {type: boolean}
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/notification_write"
+        documents:
+          anyOf:
+            - type: object
+              properties:
+                travel:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/library_node_upload"
+                destination:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/library_node_upload"
+              additionalProperties: false
+            - type: object
+              properties:
+                all:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/library_node_folder_object"
+              additionalProperties: false
+        meta:
+          $ref: "#/components/schemas/itinerary_meta"
+      additionalProperties: false
+
+    # -----------------------------------------------------------------------
+    # ITINERARY READ (GET response)
+    # -----------------------------------------------------------------------
+    itinerary_read:
+      type: object
+      properties:
+        id: {type: integer}
+        operator_id: {type: integer}
+        operator_code: {type: string}
+        reference_code: {type: string}
+        vamoos_id: {type: integer}
+        type: {type: string}
+        departure_date: {type: string, format: date}
+        return_date: {type: string, format: date}
+        field1: {type: string}
+        field2: {type: string}
+        field3: {type: string}
+        field4: {type: string}
+        version: {type: integer}
+        is_current_version: {type: boolean}
+        background:
+          $ref: "#/components/schemas/library_node_read"
+          description: "Returned as full library_node_read — NOT a library_node_upload. To POST back, extract background.file.s3_url and send as {file_url: s3_url}"
+        flights:
+          type: array
+          items:
+            $ref: "#/components/schemas/flight_get"
+        locations:
+          type: array
+          items:
+            $ref: "#/components/schemas/location_read"
+        pois:
+          type: array
+          items:
+            $ref: "#/components/schemas/poi_get"
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/notification_get"
+        documents:
+          type: object
+          properties:
+            travel:
+              type: array
+              items:
+                $ref: "#/components/schemas/library_node_read"
+            destination:
+              type: array
+              items:
+                $ref: "#/components/schemas/library_node_read"
+            all:
+              type: array
+              items:
+                $ref: "#/components/schemas/library_node_read"
+        is_active: {type: boolean}
+        downloads: {type: integer}
+        meta:
+          $ref: "#/components/schemas/itinerary_meta"
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        routing: {type: object}
+        preview_link: {type: string}
+        preview_link_id: {type: string}
+      additionalProperties: false
+
+    # -----------------------------------------------------------------------
+    # FILE UPLOAD URL (GET S3 pre-signed URL)
+    # -----------------------------------------------------------------------
+    file_upload_url_response:
+      type: object
+      required: [url, s3url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: "Pre-signed S3 URL — PUT the file bytes here"
+        s3url:
+          type: string
+          description: "Internal Vamoos S3 URL — use this as file_url in subsequent POST"
+
+    location_write:
+      type: object
+      required: [name, latitude, longitude]
+      properties:
+        name: {type: string, maxLength: 128}
+        latitude: {type: number}
+        longitude: {type: number}
+        description: {type: string}
+        icon_id: {type: integer}
+      additionalProperties: false
+
+    location_read:
+      type: object
+      properties:
+        id: {type: integer}
+        itinerary_id: {type: integer}
+        name: {type: string}
+        latitude: {type: number}
+        longitude: {type: number}
+        description: {type: string}
+        country: {type: string}
+        country_iso: {type: string}
+        icon_id: {type: integer}
+        timezone: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+
+    poi_get:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        latitude: {type: number}
+        longitude: {type: number}
+        description: {type: string}
+        icon_id: {type: integer}
+        is_default_on: {type: boolean}
+        is_on: {type: boolean}
+        meta:
+          type: object
+          properties:
+            waypoints:
+              type: array
+              items:
+                type: object
+                properties:
+                  latitude: {type: number}
+                  longitude: {type: number}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+
+    notification_write:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [gps, forced, timed, inspiration]
+        content: {type: string, nullable: true}
+        url: {type: string}
+        is_active: {type: boolean}
+      additionalProperties: false
+
+    notification_get:
+      type: object
+      properties:
+        id: {type: integer}
+        itinerary_id: {type: integer}
+        type: {type: string}
+        content: {type: string}
+        url: {type: string}
+        is_active: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+
+    flight_get:
+      type: object
+      properties:
+        id: {type: integer}
+        carrier_flight_number: {type: string}
+        departure_date_local: {type: string}
+        departure_at_utc: {type: string, format: date-time}
+        arrival_at_utc: {type: string, format: date-time}
+        status: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+
+    itinerary_meta:
+      type: object
+      description: "Extensible meta. Fields documented here are non-exhaustive."
+      properties:
+        show_journal: {type: boolean}
+        show_days: {type: boolean}
+        show_poi_list: {type: boolean}
+        home_screen_description: {type: string}
+        address: {type: string}
+        latitude: {type: string}
+        longitude: {type: string}
+        phone: {type: string}
+        email: {type: string}
+        website: {type: string}
+        short_description: {type: string}
+        long_description: {type: string}
+
+    status_ok:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ["OK"]
+      additionalProperties: false
+
+    job:
+      type: object
+      required: [status, id]
+      properties:
+        status:
+          type: string
+          enum: ["enqueued", "processing", "completed", "failed"]
+        id: {type: string}
+        error_message: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false

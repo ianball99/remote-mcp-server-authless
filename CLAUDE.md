@@ -7,7 +7,8 @@ At the start of every session, Claude must do the following **before any other w
 1. **Remind the user** to add the chatbot repo to the session: `ianball99/claude-code-chatbot-v1`
 2. **Ask the user for their GitHub Personal Access Token** (needed for pushing to repos)
 3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `main` on `ianball99/remote-mcp-server-authless`
-4. **Read TODO.md** (in this repo, `main` branch), show the user the open items, then **ask what they want to work on**
+4. **If the session involves Vamoos API work**, also read **VAMOOS_API_SPEC.txt** and **VAMOOS_FIELD_NOTES.md** from `main` — these document the official API schema and confirmed GET/POST field mappings
+5. **Read TODO.md** (in this repo, `main` branch), show the user the open items, then **ask what they want to work on**
 
 ---
 
@@ -28,6 +29,15 @@ Whenever `CLAUDE.md` or `DESIGN_DOC.md` are updated on a `claude/` branch, they 
 
 ---
 
+
+## Vamoos API Reference Files
+
+- **`VAMOOS_API_SPEC.txt`** — Official Vamoos OpenAPI spec (v5.0.20251003). Source of truth for schema definitions.
+- **`VAMOOS_FIELD_NOTES.md`** — Confirmed field mappings and gotchas from live testing. Read this before touching any Vamoos API code. Key sections:
+  - §2 Background GET vs POST shape mismatch (critical — caused multiple bugs)
+  - §3 Documents round-trip mapping
+  - §4 S3 upload flow
+  - §6/7 Read-only vs writable fields
 
 ## Vamoos API — Itinerary Updates
 
