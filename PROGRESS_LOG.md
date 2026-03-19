@@ -6,24 +6,102 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ## 19 March 2026
 
-### Session summary
-- Diagnosed and fixed background field round-trip bug: GET returns `library_node_read` with nested `file.s3_url`; POST expects `file_url_upload_object` with `{ file_url: string }`. Added `sanitizeBackground()` to handle the conversion.
-- Confirmed document upload working end-to-end after the fix.
-- Created `VAMOOS_API_SPEC.txt` (official OpenAPI spec v5.0.20251003) and `VAMOOS_FIELD_NOTES.md` (confirmed field mappings, gotchas, S3 upload flow) as permanent reference files.
-- Updated `CLAUDE.md` session start checklist to reference both API files for Vamoos work.
-- Updated `DESIGN_DOC.md` §7 current state to reflect confirmed working tools.
-- Added three backlog items to `TODO.md`:
-  1. Review GPX upload tool for correct fetch-then-merge on `pois`
-  2. Review POI upload tool for fetch-then-merge
-  3. Rework HTML document tool to support retrieve-edit-replace flow with versioned filenames
+### Fetch-then-merge pattern
+- Identified that Vamoos itinerary POST is a full overwrite — any omitted field is deleted
+- Implemented fetch-then-merge on all itinerary update paths (`upload_background_image`, `upload_document`, `upload_gpx_and_attach_to_itinerary`)
+- Discovered that spreading the raw GET response breaks POST (read-only fields rejected). Refactored to `pickWritable()` whitelist approach
+- Added deduplication logic: `mergePois()` by id, `mergeTravelDocs()` by file_url, locations appended
 
-### Files changed
-- `src/index.ts` — background sanitization fix
-- `VAMOOS_API_SPEC.txt` — new
-- `VAMOOS_FIELD_NOTES.md` — new
-- `PROGRESS_LOG.md` — new
-- `CLAUDE.md` — updated
-- `DESIGN_DOC.md` — updated
-- `TODO.md` — updated
+### Background field bug
+- Diagnosed background round-trip bug: GET returns `library_node_read` with nested `file.s3_url`; POST expects `{ file_url: string }`. These are completely different shapes
+- Added `sanitizeBackground()` to extract `file.s3_url` and convert to correct POST format
+- Confirmed document upload working end-to-end after fix
+
+### Documentation and project hygiene
+- Created `CLAUDE.md` with session start/end checklists and Vamoos API notes
+- Created `TODO.md`
+- Created `VAMOOS_API_SPEC.txt` (official OpenAPI spec v5.0.20251003)
+- Created `VAMOOS_FIELD_NOTES.md` (confirmed GET/POST field mappings, S3 flow, read-only fields)
+- Created `PROGRESS_LOG.md` (this file)
+- Updated `DESIGN_DOC.md` §7 current state
+- Documented Cloudflare auto-deploy behaviour (master + claude/** branches)
+- Clarified Netlify deploys from main only; Claude pushes to main on user approval
+- Clarified that 403 on master push = PAT not configured, not a sandbox restriction
 
 ---
+
+## 18 March 2026
+
+### GPX track upload
+- Fixed GPX upload: replaced broken `/poi/gpx` endpoint with `/poi` JSON approach
+- Parse GPX XML server-side to extract `<trkpt>` waypoints, POST as `{ type: "track", meta: { waypoints: [...] } }`
+- Added a location pin at the GPX track start point when attaching to itinerary
+- Added detailed step-by-step logging to GPX tool for easier debugging
+- Wrote `DESIGN_DOC.md` covering architecture, decisions, and blind alleys up to this date
+
+---
+
+## 17 March 2026
+
+### GPX upload debugging
+- Added `AbortSignal.timeout` to GPX Vamoos fetch calls for clearer timeout errors
+- Tried multipart/form-data for GPX upload — failed
+- Tried raw `application/gpx+xml` body — also failed
+- Added minimal `test.gpx` (3 points) for API testing
+- Renamed `upload_gpx_track` → `upload_gpx_and_attach_to_itinerary`
+
+---
+
+## 16 March 2026
+
+### Tool description fix
+- Fixed `upload_document` description to reference the correct tool name
+
+---
+
+## 15 March 2026
+
+### HTML document tool
+- Added `upload_created_html_itinerary_document` — AI writes HTML directly, uploaded as `.html` file
+- Retired markdown→PDF approach as legacy (kept in codebase as `legacy_upload_created_itinerary_document`)
+
+---
+
+## 13 March 2026
+
+### Document generation — multiple iterations
+- Replaced `pdf-lib` with Cloudflare Puppeteer for HTML→PDF conversion (pdf-lib crashed on Unicode)
+- Added system prompt (`SYSTEM_PROMPT.md`) for Vamoos travel interview assistant
+- Tried markdown as document format with server-side converter — incomplete, inconsistent
+- Switched to AI writing HTML directly
+- Added `upload_created_itinerary_document` tool with markdown input (later replaced by HTML version)
+- Fixed model routing: tool descriptions updated so AI uses the right tool for AI-generated vs user-supplied content
+- Consolidated `generate_and_upload_pdf` into `upload_document` as mode 1
+- Fixed `list_itineraries`: removed operator code from URL path (correct endpoint is `GET /itinerary`, operator in header only)
+- Fixed GitHub Actions deploy trigger: was watching `main`, changed to `master` + added `claude/**`
+
+---
+
+## 12 March 2026
+
+### Core upload tools
+- Added `upload_background_image` and `upload_document` MCP tools
+- Added `/upload` HTTP endpoint accepting `multipart/form-data` binary blobs
+- Added `list_itineraries` and `get_itinerary` tools
+- Added `generate_and_upload_pdf` tool (server-side PDF generation)
+- Fixed non-JSON (HTML) error responses from API calls with `safeJson()`
+- Declared `VAMOOS_API_TOKEN` as Cloudflare secret
+
+---
+
+## 11 March 2026
+
+### Initial build
+- Built Vamoos itinerary MCP server for Cloudflare Workers (`create_itinerary`, `update_itinerary`)
+- Added GitHub Actions deploy workflow
+
+---
+
+## 10 March 2026
+
+- Source repo imported / project started
