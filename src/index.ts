@@ -1135,7 +1135,7 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					if (!response.ok) {
 						return {
-							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}` }],
+							content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}\n\nDEBUG raw background from GET: ${JSON.stringify(existing.background, null, 2)}\nDEBUG body.background sent: ${JSON.stringify(body.background, null, 2)}` }],
 						};
 					}
 
