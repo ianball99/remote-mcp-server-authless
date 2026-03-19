@@ -157,14 +157,19 @@ const WRITABLE_ITINERARY_FIELDS = [
 // The GET response returns background as a full media-library node (with id, tag,
 // operator_id, file, path, created_at, etc.) but the POST schema only accepts a
 // small set of fields. Strip it down to just what POST accepts.
-const BACKGROUND_WRITABLE_FIELDS = ["file_url", "file_id", "library_node_id", "web_url", "children", "name"] as const;
+// NOTE: the GET response uses "file" for the URL; we map it to "file_url" for POST.
+const BACKGROUND_WRITABLE_FIELDS = ["file_url", "file_id", "library_node_id", "web_url", "children"] as const;
 function sanitizeBackground(bg: unknown): unknown {
 	if (typeof bg === "string" || bg === null || bg === undefined) return bg;
 	if (typeof bg !== "object") return bg;
+	const node = bg as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
 	for (const key of BACKGROUND_WRITABLE_FIELDS) {
-		const val = (bg as Record<string, unknown>)[key];
-		if (val !== undefined) out[key] = val;
+		if (node[key] !== undefined) out[key] = node[key];
+	}
+	// GET response stores the URL in "file" — map it to "file_url" for POST
+	if (out.file_url === undefined && node.file !== undefined) {
+		out.file_url = node.file;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;
 }
