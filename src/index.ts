@@ -147,32 +147,47 @@ type TravelDoc = { file_url: string; name: string };
 
 // Fields the Vamoos POST /itinerary API accepts. Read-only server fields
 // (id, operator_id, version, created_at, flights, etc.) must NOT be sent back.
+// Source of truth: itinerary_write schema in VAMOOS_API_SPEC.txt (additionalProperties: false).
 const WRITABLE_ITINERARY_FIELDS = [
-	"vamoos_id", "departure_date", "return_date",
-	"field1", "field2", "field3", "field4", "field5",
+	"vamoos_id", "departure_date", "return_date", "timezone",
+	"field1", "field2", "field3", "field4",
 	"background", "pois", "documents", "locations",
-	"storyboard", "notifications", "widgets",
+	"notifications", "meta",
 ] as const;
 
-// The GET response returns background as a full media-library node (with id, tag,
-// operator_id, file, path, created_at, etc.) but the POST schema only accepts a
-// small set of fields. Strip it down to just what POST accepts.
-// NOTE: the GET response uses "file" for the URL; we map it to "file_url" for POST.
-const BACKGROUND_WRITABLE_FIELDS = ["file_url", "file_id", "library_node_id", "web_url", "children"] as const;
-function sanitizeBackground(bg: unknown): unknown {
-	if (typeof bg === "string" || bg === null || bg === undefined) return bg;
-	if (typeof bg !== "object") return bg;
-	const node = bg as Record<string, unknown>;
+// The GET response returns background/documents as full library_node_read objects
+// (with id, tag, operator_id, file.s3_url, path, created_at, etc.) but the POST
+// schema only accepts library_node_upload shapes. Strip down to just what POST accepts.
+// NOTE: the GET response stores the URL in "file.s3_url" — we map it to "file_url" for POST.
+function sanitizeLibraryNode(node: unknown): Record<string, unknown> | undefined {
+	if (typeof node !== "object" || node === null) return undefined;
+	const n = node as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
-	for (const key of BACKGROUND_WRITABLE_FIELDS) {
-		if (node[key] !== undefined) out[key] = node[key];
+	// Preserve name if present
+	if (typeof n.name === "string") out.name = n.name;
+	// Case 1: already a file_url_upload_object (has file_url directly)
+	if (typeof n.file_url === "string") {
+		out.file_url = n.file_url;
+		return out;
 	}
-	// GET response stores the URL in "file.s3_url" — map it to "file_url" for POST
-	if (out.file_url === undefined && typeof node.file === "object" && node.file !== null) {
-		const f = node.file as Record<string, unknown>;
-		if (typeof f.s3_url === "string") out.file_url = f.s3_url;
+	// Case 2: library_node_read — URL is nested at file.s3_url
+	if (typeof n.file === "object" && n.file !== null) {
+		const f = n.file as Record<string, unknown>;
+		if (typeof f.s3_url === "string") {
+			out.file_url = f.s3_url;
+			return out;
+		}
 	}
-	return Object.keys(out).length > 0 ? out : undefined;
+	// Case 3: library_node_upload_object — reference by id
+	if (typeof n.library_node_id === "number") {
+		out.library_node_id = n.library_node_id;
+		return out;
+	}
+	return undefined;
+}
+
+function sanitizeBackground(bg: unknown): unknown {
+	return sanitizeLibraryNode(bg);
 }
 
 function pickWritable(existing: Record<string, unknown>): Record<string, unknown> {
@@ -209,15 +224,46 @@ async function fetchItinerary(referenceCode: string, token: string): Promise<Rec
 function getExistingPois(existing: Record<string, unknown>): PoiRef[] {
 	const pois = existing.pois;
 	if (!Array.isArray(pois)) return [];
-	return pois.filter((p): p is PoiRef => typeof p === "object" && p !== null && typeof (p as PoiRef).id === "number");
+	return pois
+		.filter((p): boolean => typeof p === "object" && p !== null && typeof (p as Record<string, unknown>).id === "number")
+		.map(p => {
+			const poi = p as Record<string, unknown>;
+			return { id: poi.id as number, is_on: typeof poi.is_on === "boolean" ? poi.is_on : true };
+		});
 }
 
-function getExistingTravelDocs(existing: Record<string, unknown>): TravelDoc[] {
+// Extracts travel/destination doc arrays from GET response, sanitizing library_node_read
+// objects into the library_node_upload shape expected by POST.
+function getExistingDocuments(existing: Record<string, unknown>): { travel: TravelDoc[]; destination: TravelDoc[] } {
 	const docs = existing.documents;
-	if (typeof docs !== "object" || docs === null) return [];
-	const travel = (docs as Record<string, unknown>).travel;
-	if (!Array.isArray(travel)) return [];
-	return travel.filter((d): d is TravelDoc => typeof d === "object" && d !== null && typeof (d as TravelDoc).file_url === "string");
+	if (typeof docs !== "object" || docs === null) return { travel: [], destination: [] };
+	const d = docs as Record<string, unknown>;
+
+	const extractDocs = (arr: unknown): TravelDoc[] => {
+		if (!Array.isArray(arr)) return [];
+		return arr
+			.map(sanitizeLibraryNode)
+			.filter((item): item is Record<string, unknown> => item !== undefined && typeof item.file_url === "string")
+			.map(item => ({ file_url: item.file_url as string, name: typeof item.name === "string" ? item.name : "" }));
+	};
+
+	return {
+		travel: extractDocs(d.travel),
+		destination: extractDocs(d.destination),
+	};
+}
+
+// Legacy accessor kept for call sites that only need travel docs
+function getExistingTravelDocs(existing: Record<string, unknown>): TravelDoc[] {
+	return getExistingDocuments(existing).travel;
+}
+
+// Builds the full documents POST body, merging new travel docs and preserving destination docs.
+function buildDocumentsBody(existing: Record<string, unknown>, newTravelDocs: TravelDoc[]): Record<string, unknown> {
+	const { travel, destination } = getExistingDocuments(existing);
+	const result: Record<string, unknown> = { travel: mergeTravelDocs(travel, newTravelDocs) };
+	if (destination.length > 0) result.destination = destination;
+	return result;
 }
 
 function mergePois(existing: PoiRef[], incoming: PoiRef[]): PoiRef[] {
@@ -372,7 +418,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		};
 
 		if (uploadType === "document") {
-			itineraryBody.documents = { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: documentName }]) };
+			itineraryBody.documents = buildDocumentsBody(existing, [{ file_url: s3url, name: documentName }]);
 		} else {
 			itineraryBody.background = { file_url: s3url, name: "Background Image" };
 		}
@@ -779,7 +825,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						vamoos_id,
 						departure_date,
 						return_date,
-						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
 					const response = await fetch(
@@ -995,7 +1041,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						vamoos_id,
 						departure_date,
 						return_date,
-						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
 					const response = await fetch(
@@ -1115,7 +1161,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						vamoos_id,
 						departure_date,
 						return_date,
-						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
 					const response = await fetch(
