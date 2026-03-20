@@ -82,6 +82,8 @@ This is implemented in `sanitizeBackground()` in `src/index.ts`.
 
 `documents.travel` is an array of `library_node_read` objects (same shape as background above).
 
+The GET response also includes a computed `documents.all` array that merges travel and destination docs. **This field must never be sent in POST** — it is not a writable field and will cause `additionalProperties` validation errors. Confirmed 20 March 2026.
+
 ### What POST accepts
 
 `documents.travel` is an array of `library_node_upload` objects:
@@ -97,6 +99,43 @@ doc.file_url  →  POST body travel item: { file_url: doc.file_url, name: doc.na
 ```
 
 The GET response for documents returns `file_url` directly on each travel item (not nested inside a `file` object like background). Deduplication is by `file_url`.
+
+`getExistingDocuments()` in `src/index.ts` handles stripping to the writable shape and excluding `documents.all`.
+
+---
+
+## 3a. Locations — GET vs POST Shape
+
+**Confirmed 20 March 2026.** The GET response for `locations[]` includes read-only server fields that the POST endpoint rejects:
+
+| GET includes (read-only) | POST accepts |
+|---|---|
+| `id`, `itinerary_id` | ✗ |
+| `country`, `country_iso` | ✗ |
+| `timezone` | ✗ |
+| `created_at`, `updated_at` | ✗ |
+| `name`, `latitude`, `longitude` | ✓ |
+| `description`, `icon_id` | ✓ |
+
+Strip to `{ name, latitude, longitude }` (plus optional `description`, `icon_id`) before re-posting. Sending raw GET locations causes `additionalProperties.openapi.validation` errors.
+
+This is handled inline in `pickWritable()`.
+
+---
+
+## 3b. Notifications — GET vs POST Shape
+
+**Confirmed 20 March 2026.** Same issue as locations.
+
+| GET includes (read-only) | POST accepts |
+|---|---|
+| `id`, `itinerary_id` | ✗ |
+| `created_at`, `updated_at` | ✗ |
+| `type`, `content`, `url`, `is_active` | ✓ |
+
+Strip to `{ type, content, url, is_active }` before re-posting.
+
+This is handled inline in `pickWritable()`.
 
 ---
 
@@ -118,9 +157,22 @@ The `s3url` from step 1 is the value to use as `file_url` in the POST.
 
 ## 5. `pois` Round-trip
 
-GET returns full `poi_get` objects. POST accepts `{ id: integer, is_on: boolean }`.
+GET returns full `poi_get` objects. POST **itinerary** accepts `{ id: integer, is_on: boolean }` per POI — nothing else.
 
 Round-trip: extract `{ id: poi.id, is_on: poi.is_on }` from each GET poi. Implemented in `getExistingPois()` / `mergePois()`.
+
+### POI types (POST /poi)
+
+When **creating** a POI (POST `/poi`), the `type` field controls rendering:
+
+| `type` | Renders as | Key extra fields |
+|---|---|---|
+| `"track"` | Route line on map | `meta.waypoints: [{latitude, longitude}]` |
+| `"poi"` | Named pin on map | `meta: {}` (empty) |
+
+Both use the same other defaults: `icon_id: 1`, `is_default_on: true`, `poi_range: 100`, `location: null`, `position: null`, `description: null`, `file: null`, `timezone: null`, `children: []`, `localisation: {}`.
+
+**Note:** In-app visibility behaviour of `is_default_on` and `poi_range` for both types not yet visually confirmed — to be verified with Alisdair.
 
 ---
 
