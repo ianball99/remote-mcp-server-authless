@@ -197,6 +197,14 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 		if (key === "background") {
 			const sanitized = sanitizeBackground(existing[key]);
 			if (sanitized !== undefined) out[key] = sanitized;
+		} else if (key === "documents") {
+			// Strip read-only server fields and documents.all (computed); sanitize to writable shape
+			const { travel, destination } = getExistingDocuments(existing);
+			if (travel.length > 0 || destination.length > 0) {
+				const docsOut: Record<string, unknown> = { travel };
+				if (destination.length > 0) docsOut.destination = destination;
+				out[key] = docsOut;
+			}
 		} else {
 			out[key] = existing[key];
 		}
