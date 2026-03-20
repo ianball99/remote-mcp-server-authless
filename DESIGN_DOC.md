@@ -177,6 +177,10 @@ body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <fie
 - `documents.travel` — deduplicate by `file_url` (new entry wins): `mergeTravelDocs(existing, incoming)`
 - `locations` — append without deduplication (same name + different coords is valid): `[...existing, ...incoming]`
 
+**`background` and `documents` are separate top-level fields** — `background` holds a single image, `documents` holds travel/destination doc arrays. They are independent in the API schema. However, because the POST is a full overwrite, updating background still requires re-sending the existing `documents` (and vice versa) or those docs will be deleted.
+
+**Critical: `documents` from the GET response must be sanitised before re-posting.** The GET response returns `documents` as a full object including `documents.all` (a computed read-only array) and individual doc nodes with server-only fields (`id`, `tag`, `operator_id`, `file`, `path`, `created_by`, etc.). POSTing these verbatim causes `additionalProperties.openapi.validation` errors — even on a background-only update. Use `getExistingDocuments()` to strip each doc to `{ file_url, name }` and exclude `documents.all`. This is handled inside `pickWritable()` (fixed 20 March 2026 — was previously only applied to `background` via `sanitizeBackground`, not to `documents`).
+
 **Exception:** `create_itinerary` intentionally creates a fresh record and does NOT fetch first. All other tools that call POST /itinerary must fetch first.
 
 **Helper:** `fetchItinerary(referenceCode, token)` handles the GET and returns parsed JSON (or a safe empty object `{}` on 404/error).
