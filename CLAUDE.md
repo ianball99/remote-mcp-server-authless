@@ -38,6 +38,17 @@ At the end of every session, Claude must:
 
 ---
 
+## Code Change Rule
+
+**Before writing any code**, Claude must:
+1. Analyse the relevant files and identify the issues or changes needed
+2. Present a clear summary of the proposed changes to the user
+3. **Wait for the user to confirm** before writing or editing any code
+
+Do not write code first and explain later.
+
+---
+
 ## Doc Sync Rule
 
 Whenever `CLAUDE.md`, `DESIGN_DOC.md`, `PROGRESS_LOG.md` or other reference docs are updated on a `claude/` branch, they must also be pushed to `master` so the latest versions are always available at session start.
