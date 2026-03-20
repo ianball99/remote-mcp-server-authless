@@ -5,9 +5,9 @@
 At the start of every session, Claude must do the following **before any other work**:
 
 1. **Remind the user** to add the chatbot repo to the session: `ianball99/claude-code-chatbot-v1`
-2. **GitHub Personal Access Token (PAT):** `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` — use this for all git pushes to `master` or any protected branch. Set it with:
+2. **GitHub Personal Access Token (PAT):** `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` — use this for all git pushes to `master` or any protected branch. Set it with:
    ```
-   git remote set-url origin https://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@github.com/ianball99/remote-mcp-server-authless.git
+   git remote set-url origin https://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@github.com/ianball99/remote-mcp-server-authless.git
    ```
    Do **not** ask the user for their PAT — it is already stored here.
 3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `master` on `ianball99/remote-mcp-server-authless`
