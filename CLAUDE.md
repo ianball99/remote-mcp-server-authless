@@ -49,6 +49,8 @@ At the end of every session, Claude must:
 2. Present a clear summary of the proposed changes to the user
 3. **Wait for the user to confirm** before writing or editing any code
 
+This also applies to git commits and pushes — do not commit or push without the user's explicit approval of the changes.
+
 Do not write code first and explain later.
 
 ---
@@ -108,9 +110,6 @@ This means **commits pushed to the working `claude/...` branch are deployed imme
 
 **Repo:** `ianball99/claude-code-chatbot-v1` (public), deployed via Netlify.
 
-Netlify deploys from `main` only (confirmed). The deployment flow is:
-1. Commit lands on the `claude/` branch first
-2. **Once the user agrees to the changes, Claude immediately pushes to `main`** — there is no GitHub Actions automation for this step
-3. The push to `main` triggers the Netlify production deploy
+Netlify is configured to deploy from **all branches** (confirmed 20 March 2026). Every push to any branch — including `claude/**` — triggers a Netlify deploy automatically. There is no need to merge to `main` first.
 
-**Netlify will not deploy until `main` is updated.**
+To review or change this setting: Netlify → Site → Site configuration → Build & deploy → Continuous deployment → Branch deploys.
