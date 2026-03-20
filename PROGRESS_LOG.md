@@ -4,6 +4,27 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 20 March 2026
+
+### `pickWritable()` sanitisation fixes
+- Fixed `locations[]` round-trip: GET returns extra fields (`id`, `itinerary_id`, `country`, `country_iso`, `timezone`, `created_at`, `updated_at`) that cause 422 errors if re-sent. Strip to `{ name, latitude, longitude }` only.
+- Fixed `notifications[]` round-trip: same issue. Strip to `{ type, content, url, is_active }`.
+- Fixed `documents.all`: GET response includes computed `.all` array alongside `.travel`/`.destination`. Must be excluded from POST payload. Fixed in `getExistingDocuments()`.
+- Transient HTTP 408 observed on one date-change update (ibtest2003-4) — confirmed not a code bug; was a network timeout unrelated to the sanitisation fixes.
+
+### `add_poi_and_attach_to_itinerary` tool
+- Added new MCP tool: create a named map pin (`type: "poi"`) and attach to itinerary using same fetch-then-merge pattern as GPX tool.
+- Also appends a `locations` entry for the pin coordinates.
+- Added matching tool definition and system prompt guidance to chatbot (`claude-code-chatbot-v1`).
+
+### Documentation checkpoint — 20 March 2026
+- `DESIGN_DOC.md` updated: tool table, §5.2 expanded for `type: "poi"` vs `type: "track"`, §7 current state refreshed, §9 cheat sheet updated with named pin pattern.
+- `VAMOOS_FIELD_NOTES.md` updated: §3 `documents.all` warning, new §3a locations shape, new §3b notifications shape, §5 POI type table.
+- `TODO.md` updated: added GPX/POI visibility check item (check with Alisdair) and `add_flight_to_itinerary` backlog item.
+- **Docs checkpoint noted here — further updates to DESIGN_DOC and VAMOOS_FIELD_NOTES will follow after additional work this session.**
+
+---
+
 ## 19 March 2026 (session 2 — housekeeping)
 
 - Rebuilt PROGRESS_LOG.md with full day-by-day history from git log (10–19 March)
