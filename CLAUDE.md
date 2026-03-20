@@ -5,7 +5,11 @@
 At the start of every session, Claude must do the following **before any other work**:
 
 1. **Remind the user** to add the chatbot repo to the session: `ianball99/claude-code-chatbot-v1`
-2. **Ask the user for their GitHub Personal Access Token** (needed for pushing to repos)
+2. **GitHub Personal Access Token (PAT):** `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` — use this for all git pushes to `master` or any protected branch. Set it with:
+   ```
+   git remote set-url origin https://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@github.com/ianball99/remote-mcp-server-authless.git
+   ```
+   Do **not** ask the user for their PAT — it is already stored here.
 3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `master` on `ianball99/remote-mcp-server-authless`
 4. **If the session involves Vamoos API work**, also read **VAMOOS_API_SPEC.txt** and **VAMOOS_FIELD_NOTES.md** from `master` — these document the official API schema and confirmed GET/POST field mappings
 5. **Read TODO.md** (in this repo, `master` branch), show the user the open items, then **ask what they want to work on**
