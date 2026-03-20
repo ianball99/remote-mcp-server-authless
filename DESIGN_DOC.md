@@ -347,4 +347,99 @@ Attach file to itinerary:
 
 ---
 
-*Document generated 18 March 2026*
+---
+
+## 10. Deployment — How Both Repos Deploy (Updated 20 March 2026)
+
+There are two separate deployments: the **Cloudflare Worker** (MCP server) and the **Netlify Chatbot** (UI). They use different mechanisms.
+
+---
+
+### 10.1 Cloudflare Worker (`ianball99/remote-mcp-server-authless`)
+
+**Mechanism:** GitHub Actions workflow at `.github/workflows/deploy.yml`
+
+**Trigger branches:**
+- `master`
+- any `claude/**` branch
+
+This means **every push to the working `claude/` branch deploys immediately** — no need to merge to `master` first. This is intentional so Claude's changes can be tested in production as they are made.
+
+**What the workflow does:**
+1. Checks out code
+2. Installs Node 20 + npm deps
+3. Pushes `VAMOOS_API_TOKEN` secret to Cloudflare via `wrangler secret put`
+4. Runs `npx wrangler deploy`
+
+**Required GitHub repo secrets** (Settings → Secrets → Actions):
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `VAMOOS_API_TOKEN`
+
+**How to review a deploy:**
+- Go to GitHub → `ianball99/remote-mcp-server-authless` → Actions tab
+- Each push shows a workflow run; click it to see logs
+
+**How to change the trigger branches:**
+- Edit `.github/workflows/deploy.yml` in this repo
+- The `on.push.branches` list controls which branches trigger a deploy
+
+**How to change secrets:**
+- GitHub → repo → Settings → Secrets and variables → Actions
+- Or re-run `npx wrangler secret put <SECRET_NAME>` locally with correct Cloudflare credentials
+
+---
+
+### 10.2 Netlify Chatbot (`ianball99/claude-code-chatbot-v1`)
+
+**Mechanism:** Netlify's native GitHub integration (Netlify pulls directly from GitHub — no GitHub Actions workflow)
+
+**Trigger branches:** All branches (configured in Netlify UI)
+
+This means **every push to the working `claude/` branch also deploys to Netlify immediately**, same as the Cloudflare Worker.
+
+**Build config** (`netlify.toml` in repo root):
+```toml
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+```
+
+**How to review a deploy:**
+- Go to [app.netlify.com](https://app.netlify.com) → select the site → Deploys tab
+- Each push appears as a deploy; click to see build logs and the deploy URL
+
+**How to change which branches trigger a deploy:**
+- Netlify → Site → Site configuration → Build & deploy → Continuous deployment → Branch deploys
+- Currently set to **All branches**
+- Can be changed to specific branch names or patterns here
+
+**How to change build settings:**
+- Edit `netlify.toml` in the repo root — changes take effect on next deploy
+- Environment variables: Netlify → Site → Site configuration → Environment variables
+
+**Note:** There is no `deploy.yml` in this repo. Do not create one — the Netlify native integration handles deployment automatically.
+
+---
+
+### 10.3 Summary Table
+
+| | Cloudflare Worker | Netlify Chatbot |
+|---|---|---|
+| **Repo** | `remote-mcp-server-authless` | `claude-code-chatbot-v1` |
+| **Mechanism** | GitHub Actions (`deploy.yml`) | Netlify native GitHub integration |
+| **Deploys from** | `master` + `claude/**` | All branches |
+| **Config location** | `.github/workflows/deploy.yml` | `netlify.toml` + Netlify UI |
+| **Secrets stored in** | GitHub repo secrets | Netlify environment variables |
+| **Review deploys at** | GitHub Actions tab | app.netlify.com → Deploys |
+| **Change trigger branches** | Edit `deploy.yml` | Netlify UI → Branch deploys setting |
+
+---
+
+*Document generated 18 March 2026 — deployment section added 20 March 2026*
