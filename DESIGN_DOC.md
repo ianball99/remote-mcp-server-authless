@@ -179,7 +179,20 @@ body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <fie
 
 **`background` and `documents` are separate top-level fields** — `background` holds a single image, `documents` holds travel/destination doc arrays. They are independent in the API schema. However, because the POST is a full overwrite, updating background still requires re-sending the existing `documents` (and vice versa) or those docs will be deleted.
 
-**Critical: `documents` from the GET response must be sanitised before re-posting.** The GET response returns `documents` as a full object including `documents.all` (a computed read-only array) and individual doc nodes with server-only fields (`id`, `tag`, `operator_id`, `file`, `path`, `created_by`, etc.). POSTing these verbatim causes `additionalProperties.openapi.validation` errors — even on a background-only update. Use `getExistingDocuments()` to strip each doc to `{ file_url, name }` and exclude `documents.all`. This is handled inside `pickWritable()` (fixed 20 March 2026 — was previously only applied to `background` via `sanitizeBackground`, not to `documents`).
+**Field-level sanitisation inside `pickWritable()` — GET vs POST shape mismatches:**
+
+Several fields are returned by GET as richer "read" objects but POST only accepts slimmer "write" objects, with `additionalProperties: false`. Each needs stripping before re-posting:
+
+| Field | Extra fields in GET response | POST write schema allows | Sanitisation |
+|-------|------------------------------|--------------------------|--------------|
+| `background` | `id`, `tag`, `operator_id`, `file.*`, `path`, `created_by`, etc. | `{ file_url, name }` | `sanitizeLibraryNode()` via `sanitizeBackground()` |
+| `documents.travel` / `.destination` | same as background, plus `documents.all` computed array | `{ file_url, name }` | `getExistingDocuments()` strips to writable shape, excludes `.all` (fixed 20 March 2026) |
+| `locations[]` | `id`, `itinerary_id`, `country`, `country_iso`, `timezone`, `created_at`, `updated_at` | `{ name, latitude, longitude, description?, icon_id? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
+| `notifications[]` | `id`, `itinerary_id`, `created_at`, `updated_at` | `{ type, content?, url?, is_active? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
+
+**Fields that do NOT need sanitisation:**
+- `pois` — already handled by `getExistingPois()` which strips each POI to `{ id, is_on }` only (the POST pois schema only accepts those two fields)
+- `flights` — not in `WRITABLE_ITINERARY_FIELDS` at all. The GET response returns full `flight_get` objects (read-only); flights are associated with a trip via a separate `flight_ids` mechanism, not by re-posting the flights array
 
 **Exception:** `create_itinerary` intentionally creates a fresh record and does NOT fetch first. All other tools that call POST /itinerary must fetch first.
 

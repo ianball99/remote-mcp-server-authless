@@ -205,6 +205,33 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 				if (destination.length > 0) docsOut.destination = destination;
 				out[key] = docsOut;
 			}
+		} else if (key === "locations") {
+			// location_read includes id, itinerary_id, country, country_iso, timezone, created_at, updated_at
+			// location_write only accepts name, latitude, longitude, description, icon_id (additionalProperties: false)
+			const locs = existing[key];
+			if (Array.isArray(locs) && locs.length > 0) {
+				out[key] = locs.map((loc: unknown) => {
+					const l = loc as Record<string, unknown>;
+					const w: Record<string, unknown> = { name: l.name, latitude: l.latitude, longitude: l.longitude };
+					if (l.description !== undefined) w.description = l.description;
+					if (l.icon_id !== undefined) w.icon_id = l.icon_id;
+					return w;
+				});
+			}
+		} else if (key === "notifications") {
+			// notification_get includes id, itinerary_id, created_at, updated_at
+			// notification_write only accepts type, content, url, is_active (additionalProperties: false)
+			const notifs = existing[key];
+			if (Array.isArray(notifs) && notifs.length > 0) {
+				out[key] = notifs.map((n: unknown) => {
+					const notif = n as Record<string, unknown>;
+					const w: Record<string, unknown> = { type: notif.type };
+					if (notif.content !== undefined) w.content = notif.content;
+					if (notif.url !== undefined) w.url = notif.url;
+					if (notif.is_active !== undefined) w.is_active = notif.is_active;
+					return w;
+				});
+			}
 		} else {
 			out[key] = existing[key];
 		}
