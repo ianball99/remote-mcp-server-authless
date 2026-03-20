@@ -77,7 +77,7 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 ---
 
-## 4. The 8 MCP Tools
+## 4. The MCP Tools
 
 | Tool | Purpose |
 |------|---------|
@@ -87,7 +87,8 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 | `get_itinerary` | Get full details of one trip by reference code |
 | `upload_background_image` | Upload image to S3, attach as trip background |
 | `upload_created_html_itinerary_document` | **Primary doc tool** — write HTML, upload as .html file |
-| `upload_gpx_and_attach_to_itinerary` | Parse GPX, create POI, attach track to trip |
+| `upload_gpx_and_attach_to_itinerary` | Parse GPX, create POI with `type: "track"`, attach to trip |
+| `add_poi_and_attach_to_itinerary` | Create a named map pin (`type: "poi"`) and attach to trip |
 | `upload_document` | Upload user-supplied file (base64) or HTML→PDF conversion |
 | `legacy_upload_created_itinerary_document` | **Deprecated** — markdown→PDF via Puppeteer, kept for reference |
 
@@ -106,20 +107,29 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **The tool:** `upload_created_html_itinerary_document` takes `html_content`, wraps it in a full HTML document if needed, uploads to S3 as a `.html` file, and attaches to the itinerary.
 
-### 5.2 GPX Tracks as POIs via JSON, Not File Upload
-**Decision:** GPX tracks are parsed server-side into waypoints, then POSTed to the Vamoos `/poi` endpoint as a JSON object with `type: "track"` and `meta.waypoints` array.
+### 5.2 GPX Tracks and Map Pins as POIs via JSON, Not File Upload
+**Decision:** GPX tracks are parsed server-side into waypoints and POSTed to `/poi` as JSON with `type: "track"`. Named map pins are POSTed to `/poi` as JSON with `type: "poi"`. Both are then attached to the itinerary via the fetch-then-merge pattern.
 
-**Why:** The Vamoos API does not have a working `/poi/gpx` endpoint that accepts raw GPX files. Multiple approaches were tried (see Blind Alleys). The working approach is:
+**Why (GPX):** The Vamoos API does not have a working `/poi/gpx` endpoint that accepts raw GPX files. Multiple approaches were tried (see Blind Alleys). The working approach is:
 1. Parse the GPX XML server-side with regex to extract `<trkpt lat=... lon=...>` points
 2. POST to `/poi` with JSON: `{ type: "track", latitude, longitude, meta: { waypoints: [...] } }`
 3. POST to `/itinerary` with `pois: [{ id: poi.id, is_on: true }]`
 
-**POI fields that matter:**
+**POI fields for tracks:**
 - `type: "track"` — tells Vamoos to render as a route line, not a pin
 - `is_default_on: true` — track is visible by default in the app without user enabling it
 - `meta.waypoints` — array of `{latitude, longitude}` objects containing the full route
 - `latitude`, `longitude` — the first waypoint, used as the POI anchor point
 - `icon_id: 1` — default icon (required by API)
+
+**POI fields for named map pins (`add_poi_and_attach_to_itinerary`):**
+- `type: "poi"` — renders as a named pin on the map
+- `name` — display name shown in the app
+- `latitude`, `longitude` — position of the pin
+- `is_default_on: true`, `poi_range: 100`, `icon_id: 1`, `meta: {}` — standard defaults
+- A corresponding `locations` entry (`{ name, latitude, longitude }`) is also appended to the itinerary
+
+**Note:** Whether `is_default_on: true` and the `poi_range` value produce the correct in-app visibility behaviour for both tracks and pins is not yet visually confirmed — to be checked with Alisdair (see TODO).
 
 ### 5.3 Vamoos API: POST for Both Create and Update
 **Decision:** Use `POST /itinerary/{operator}/{reference_code}` for both creating AND updating trips.
@@ -278,7 +288,7 @@ All attempts failed. The API returned errors.
 
 ---
 
-## 7. Current State (19 March 2026)
+## 7. Current State (20 March 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -290,13 +300,18 @@ All attempts failed. The API returned errors.
 - ✅ Auto-deploy on push via GitHub Actions
 - ✅ Background field round-trip mapping fixed (GET `file.s3_url` → POST `file_url`)
 - ✅ Vamoos API reference files added: VAMOOS_API_SPEC.txt, VAMOOS_FIELD_NOTES.md
+- ✅ `pickWritable()` sanitisation for `locations`, `notifications` — strip read-only fields before POST (20 March 2026)
+- ✅ `getExistingDocuments()` — excludes `documents.all` computed array from POST payload (20 March 2026)
+- ✅ `add_poi_and_attach_to_itinerary` tool added — create named map pin (`type: "poi"`) and attach to trip (20 March 2026)
+- ✅ Chatbot (`claude-code-chatbot-v1`) updated with `add_poi_and_attach_to_itinerary` tool definition and system prompt guidance (20 March 2026)
 
 ### Under Investigation / Next Steps
 - 🔍 Verify GPX tool uses fetch-then-merge correctly for `pois` array
 - 🔍 Verify `upload_poi` tool works with fetch-then-merge pattern
 - 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
-- 🔍 GPX track display in Vamoos mobile app not yet visually verified
+- 🔍 GPX track and POI visibility in Vamoos mobile app not yet visually verified — check `is_default_on`, `poi_range`, `type` values with Alisdair
 - ❓ The `upload_document` Puppeteer/PDF path is untested end-to-end after the HTML→direct-upload change
+- ⬜ `add_flight_to_itinerary` tool not yet built
 
 ### Known Limitations
 - Operator code (`alisdair`) is hardcoded — single-tenant only
@@ -341,11 +356,18 @@ List itineraries:
   GET /itinerary?page=1&per_page=50
   (NO operator code in path — header only)
 
-Create POI (including tracks):
+Create POI — track (GPX route line):
   POST /poi
   Body: { name, latitude, longitude, type: "track", icon_id: 1,
           is_default_on: true, poi_range: 100,
           meta: { waypoints: [{latitude, longitude}, ...] },
+          location: null, position: null, description: null,
+          file: null, timezone: null, children: [], localisation: {} }
+
+Create POI — named map pin:
+  POST /poi
+  Body: { name, latitude, longitude, type: "poi", icon_id: 1,
+          is_default_on: true, poi_range: 100, meta: {},
           location: null, position: null, description: null,
           file: null, timezone: null, children: [], localisation: {} }
 

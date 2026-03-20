@@ -13,6 +13,8 @@
 
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify it uses fetch-then-merge correctly (pois array must be merged, not overwritten)
 - [ ] Revisit `upload_poi` tool — check it works correctly with fetch-then-merge pattern
+- [ ] Check GPX track and POI visibility settings — confirm `is_default_on`, `poi_range`, and `type` values are correct for display in Vamoos app. Check with Alisdair.
+- [ ] Build `add_flight_to_itinerary` tool — allow Claude to add a flight to an itinerary via Vamoos API
 - [ ] Rework `upload_created_html_itinerary_document` to support a retrieve-edit-replace flow:
   - Retrieve current HTML document from itinerary and show user
   - Allow user to request changes via chatbot
