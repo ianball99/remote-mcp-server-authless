@@ -1029,6 +1029,137 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 		);
 
+		// Add a POI (type=poi) and attach it to an itinerary
+		this.server.tool(
+			"add_poi_and_attach_to_itinerary",
+			"Add a Point of Interest (POI) to Vamoos and attach it to a trip. The POI will appear on the map in the Vamoos app. Provide a name and coordinates.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("Reference code (Passcode) of the itinerary"),
+				vamoos_id: z
+					.number()
+					.int()
+					.describe("The vamoos_id of the itinerary"),
+				departure_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Departure date (YYYY-MM-DD)"),
+				return_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Return date (YYYY-MM-DD)"),
+				name: z
+					.string()
+					.describe("Display name for the POI"),
+				latitude: z
+					.string()
+					.describe("Latitude of the POI (e.g. \"48.8566\")"),
+				longitude: z
+					.string()
+					.describe("Longitude of the POI (e.g. \"2.3522\")"),
+			},
+			async ({ reference_code, vamoos_id, departure_date, return_date, name, latitude, longitude }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: POST to /poi with JSON
+					const poiPayload = {
+						name,
+						location: null,
+						latitude,
+						longitude,
+						position: null,
+						description: null,
+						icon_id: 1,
+						timezone: null,
+						is_default_on: true,
+						poi_range: 100,
+						file: null,
+						meta: {},
+						type: "poi",
+						children: [],
+						localisation: {},
+					};
+					log.push(`[1/3] POST ${VAMOOS_BASE_URL}/poi — payload:\n${JSON.stringify(poiPayload, null, 2)}`);
+
+					const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+						body: JSON.stringify(poiPayload),
+					});
+
+					const poiData = await safeJson(poiResponse);
+					log.push(`[1/3] POST /poi → HTTP ${poiResponse.status}\n${JSON.stringify(poiData, null, 2)}`);
+
+					if (!poiResponse.ok) {
+						return {
+							content: [{ type: "text", text: `=== FAILED at step 1/3 (create POI) ===\n${log.join("\n\n")}` }],
+						};
+					}
+
+					const poi = poiData as { id: number };
+					log.push(`[2/3] POI created with id=${poi.id}`);
+
+					// Step 2: Fetch existing itinerary, spread all fields, merge pois/locations
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const locationName = `Location-${name}`;
+					const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
+					const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
+
+					const itinPayload: Record<string, unknown> = {
+						...pickWritable(existing),
+						vamoos_id,
+						departure_date,
+						return_date,
+						pois: mergedPois,
+						locations: mergedLocations,
+					};
+
+					log.push(`[3/3] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify({ ...itinPayload, pois: `[${mergedPois.length} pois]`, locations: `[${mergedLocations.length} locations]` }, null, 2)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[3/3] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return {
+							content: [{ type: "text", text: `=== FAILED at step 3/3 (attach POI to itinerary) ===\n${log.join("\n\n")}` }],
+						};
+					}
+
+					return {
+						content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }],
+					};
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return {
+						content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }],
+					};
+				}
+			},
+		);
+
 		// Upload an AI-generated HTML document directly as an .html file to an itinerary
 		this.server.tool(
 			"upload_created_html_itinerary_document",
