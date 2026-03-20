@@ -190,6 +190,8 @@ Several fields are returned by GET as richer "read" objects but POST only accept
 | `locations[]` | `id`, `itinerary_id`, `country`, `country_iso`, `timezone`, `created_at`, `updated_at` | `{ name, latitude, longitude, description?, icon_id? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
 | `notifications[]` | `id`, `itinerary_id`, `created_at`, `updated_at` | `{ type, content?, url?, is_active? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
 
+**Note on HTTP 408 (20 March 2026):** A 408 Request Timeout was observed on a date-change update for trip ibtest2003-4. The same operation succeeded immediately before and after the `locations`/`notifications` sanitisation fixes were applied, confirming the 408 was a transient network/server timeout, not a code bug. The sanitisation fixes are still correct and necessary for trips that have locations or notifications set, as those would cause 422 validation errors.
+
 **Fields that do NOT need sanitisation:**
 - `pois` — already handled by `getExistingPois()` which strips each POI to `{ id, is_on }` only (the POST pois schema only accepts those two fields)
 - `flights` — not in `WRITABLE_ITINERARY_FIELDS` at all. The GET response returns full `flight_get` objects (read-only); flights are associated with a trip via a separate `flight_ids` mechanism, not by re-posting the flights array
