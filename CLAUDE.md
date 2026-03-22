@@ -104,9 +104,8 @@ This means **commits pushed to the working `claude/...` branch are deployed imme
 
 **Repo:** `ianball99/claude-code-chatbot-v1` (public), deployed via Netlify.
 
-Netlify deploys from `main` only (confirmed). The deployment flow is:
-1. Commit lands on the `claude/` branch first
-2. **Once the user agrees to the changes, Claude immediately pushes to `main`** — there is no GitHub Actions automation for this step
-3. The push to `main` triggers the Netlify production deploy
+Netlify deploys from **all branches** (branch deploys enabled). Each pushed branch gets its own preview URL. The production URL tracks `main`.
 
-**Netlify will not deploy until `main` is updated.**
+- Pushing a `claude/` branch triggers a branch deploy immediately — no merge needed to test
+- To update the **production URL**, merge to `main`
+- Branch deploy URL format: `https://<branch-slug>--<site-name>.netlify.app`
