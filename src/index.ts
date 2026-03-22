@@ -1263,13 +1263,15 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 		);
 
-		// Add a location to an itinerary
-		// Locations define geographic areas for the trip — any Vamoos POIs whose coordinates
-		// fall within the radius of a location will automatically appear for that trip.
-		// They also appear on the trip map in a separate tab from POIs.
+		// Add a standalone location to an itinerary (without a POI).
+		// NOTE: POI tools already add a matching location automatically alongside each POI,
+		// so this tool is NOT needed after adding a POI. Use it only when there is no POI
+		// to add — e.g. a city or region the trip passes through — to make nearby global
+		// Vamoos POIs visible for the trip. Locations appear on the trip map (separate tab
+		// from POIs).
 		this.server.tool(
 			"add_location_to_itinerary",
-			"Add a location to a Vamoos trip. Locations define geographic areas for the trip — any Vamoos POIs within the radius of a location will automatically appear for that trip. Locations also appear on the trip map in a separate tab from POIs. Only the reference_code is needed to identify the trip. Existing locations are preserved.",
+			"Add a standalone location to a Vamoos trip (no POI). NOTE: POI tools already add a location automatically alongside each POI, so this tool is only needed when adding a location without a POI — e.g. to add a city or stopover so that nearby global Vamoos POIs become visible for the trip. Locations appear on the trip map in a separate tab from POIs. Only the reference_code is needed to identify the trip. Existing locations are preserved.",
 			{
 				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
 				name: z.string().min(1).max(128).describe("Display name for the location (e.g. 'Rome', 'Heathrow Airport')"),
