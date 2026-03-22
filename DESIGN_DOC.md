@@ -88,7 +88,10 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 | `upload_background_image` | Upload image to S3, attach as trip background |
 | `upload_created_html_itinerary_document` | **Primary doc tool** — write HTML, upload as .html file |
 | `upload_gpx_and_attach_to_itinerary` | Parse GPX, create POI with `type: "track"`, attach to trip |
-| `add_poi_and_attach_to_itinerary` | Create a named map pin (`type: "poi"`) and attach to trip |
+| `add_poi_and_attach_to_itinerary` | Create a named map pin (`type: "poi"`) and attach to trip; also auto-adds a location |
+| `create_and_add_poi` | Look up or create a Vamoos global POI, then attach to trip; also auto-adds a location |
+| `add_flight_to_itinerary` | Look up flight via carrier/number/airports/date, attach via `flight_ids` |
+| `add_location_to_itinerary` | Add a standalone location (no POI) — only needed when no POI is being added |
 | `upload_document` | Upload user-supplied file (base64) or HTML→PDF conversion |
 | `legacy_upload_created_itinerary_document` | **Deprecated** — markdown→PDF via Puppeteer, kept for reference |
 
@@ -288,7 +291,7 @@ All attempts failed. The API returned errors.
 
 ---
 
-## 7. Current State (20 March 2026)
+## 7. Current State (22 March 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -302,16 +305,15 @@ All attempts failed. The API returned errors.
 - ✅ Vamoos API reference files added: VAMOOS_API_SPEC.txt, VAMOOS_FIELD_NOTES.md
 - ✅ `pickWritable()` sanitisation for `locations`, `notifications` — strip read-only fields before POST (20 March 2026)
 - ✅ `getExistingDocuments()` — excludes `documents.all` computed array from POST payload (20 March 2026)
-- ✅ `add_poi_and_attach_to_itinerary` tool added — create named map pin (`type: "poi"`) and attach to trip (20 March 2026)
-- ✅ Chatbot (`claude-code-chatbot-v1`) updated with `add_poi_and_attach_to_itinerary` tool definition and system prompt guidance (20 March 2026)
+- ✅ `add_poi_and_attach_to_itinerary` tool — create named map pin (`type: "poi"`) and attach to trip (20 March 2026)
+- ✅ `add_flight_to_itinerary` tool — look up flight via `/flight/lookup`, attach via `flight_ids`; `pickWritable()` derives `flight_ids` from existing `flights[]` so existing flights are preserved (22 March 2026)
+- ✅ `add_location_to_itinerary` tool — add a standalone location without a POI; POI tools already auto-add a location so this is only needed when there is no POI (22 March 2026)
+- ✅ Chatbot updated with all new tools and system prompt guidance (22 March 2026)
 
 ### Under Investigation / Next Steps
-- 🔍 Verify GPX tool uses fetch-then-merge correctly for `pois` array
-- 🔍 Verify `upload_poi` tool works with fetch-then-merge pattern
 - 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
 - 🔍 GPX track and POI visibility in Vamoos mobile app not yet visually verified — check `is_default_on`, `poi_range`, `type` values with Alisdair
 - ❓ The `upload_document` Puppeteer/PDF path is untested end-to-end after the HTML→direct-upload change
-- ⬜ `add_flight_to_itinerary` tool not yet built
 
 ### Known Limitations
 - Operator code (`alisdair`) is hardcoded — single-tenant only
@@ -485,4 +487,4 @@ This means **every push to the working `claude/` branch also deploys to Netlify 
 
 ---
 
-*Document generated 18 March 2026 — deployment section added 20 March 2026*
+*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026*

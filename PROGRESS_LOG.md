@@ -4,6 +4,22 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 22 March 2026
+
+### `add_flight_to_itinerary` tool
+- Added MCP tool: look up a flight via `GET /flight/lookup/{carrier}/{number}/{dep}/{arr}/{date}`, then attach to trip via `flight_ids` field in itinerary POST.
+- `pickWritable()` updated to derive `flight_ids` from the read-only `flights[]` array in the GET response, so existing flights are preserved when any other itinerary update is made.
+- Chatbot updated with matching tool definition and system prompt guidance.
+- Field notes updated: §3c documents the `flights` (read-only) vs `flight_ids` (writable) distinction.
+
+### `add_location_to_itinerary` tool
+- Added MCP tool: add a standalone location to a trip (no POI).
+- Clarified that POI tools already auto-add a matching location alongside each POI, so this tool is only needed for locations without a POI (e.g. a city stopover to pull in nearby global Vamoos POIs).
+- Tool description and chatbot system prompt updated to reflect this.
+- Field notes §3a updated with auto-add behaviour note.
+
+---
+
 ## 20 March 2026
 
 ### `pickWritable()` sanitisation fixes

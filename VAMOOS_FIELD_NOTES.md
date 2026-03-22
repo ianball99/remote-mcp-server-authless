@@ -104,7 +104,7 @@ The GET response for documents returns `file_url` directly on each travel item (
 
 ---
 
-## 3a. Locations — GET vs POST Shape
+## 3a. Locations — GET vs POST Shape and Auto-Add Behaviour
 
 **Confirmed 20 March 2026.** The GET response for `locations[]` includes read-only server fields that the POST endpoint rejects:
 
@@ -120,6 +120,8 @@ The GET response for documents returns `file_url` directly on each travel item (
 Strip to `{ name, latitude, longitude }` (plus optional `description`, `icon_id`) before re-posting. Sending raw GET locations causes `additionalProperties.openapi.validation` errors.
 
 This is handled inline in `pickWritable()`.
+
+**Auto-add behaviour (22 March 2026):** POI tools (`add_poi_and_attach_to_itinerary`, `create_and_add_poi`) automatically append a matching `locations` entry alongside each POI so that the POI's area appears on the trip map. The standalone `add_location_to_itinerary` tool should therefore only be used when adding a location *without* a POI — e.g. a city stopover with no specific POI.
 
 ---
 
