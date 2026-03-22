@@ -403,12 +403,13 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 
 			// Fetch existing itinerary, spread all fields, merge pois/locations
 			const existing = await fetchItinerary(referenceCode, env.VAMOOS_API_TOKEN);
+			const writableExisting = pickWritable(existing);
 			const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
-			const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+			const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
 			const mergedLocations = [...existingLocations, { name: `Location-${poiName}`, latitude, longitude }];
 
 			const gpxItinBody: Record<string, unknown> = {
-				...pickWritable(existing),
+				...writableExisting,
 				vamoos_id: vamoosId,
 				departure_date: departureDate,
 				return_date: returnDate,
@@ -978,13 +979,14 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					// Step 2: Fetch existing itinerary, spread all fields, merge pois/locations
 					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
 					const locationName = `Location-${poiName}`;
 					const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
-					const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
 					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
 
 					const itinPayload: Record<string, unknown> = {
-						...pickWritable(existing),
+						...writableExisting,
 						vamoos_id,
 						departure_date,
 						return_date,
@@ -1109,13 +1111,14 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					// Step 2: Fetch existing itinerary, spread all fields, merge pois/locations
 					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
 					const locationName = `Location-${name}`;
 					const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
-					const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
 					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
 
 					const itinPayload: Record<string, unknown> = {
-						...pickWritable(existing),
+						...writableExisting,
 						vamoos_id,
 						departure_date,
 						return_date,
