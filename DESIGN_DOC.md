@@ -77,7 +77,7 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 ---
 
-## 4. The 8 MCP Tools
+## 4. The MCP Tools
 
 | Tool | Purpose |
 |------|---------|
@@ -87,7 +87,11 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 | `get_itinerary` | Get full details of one trip by reference code |
 | `upload_background_image` | Upload image to S3, attach as trip background |
 | `upload_created_html_itinerary_document` | **Primary doc tool** — write HTML, upload as .html file |
-| `upload_gpx_and_attach_to_itinerary` | Parse GPX, create POI, attach track to trip |
+| `upload_gpx_and_attach_to_itinerary` | Parse GPX, create POI with `type: "track"`, attach to trip |
+| `add_poi_and_attach_to_itinerary` | Create a named map pin (`type: "poi"`) and attach to trip; also auto-adds a location |
+| `create_and_add_poi` | Look up or create a Vamoos global POI, then attach to trip; also auto-adds a location |
+| `add_flight_to_itinerary` | Look up flight via carrier/number/airports/date, attach via `flight_ids` |
+| `add_location_to_itinerary` | Add a standalone location (no POI) — only needed when no POI is being added |
 | `upload_document` | Upload user-supplied file (base64) or HTML→PDF conversion |
 | `legacy_upload_created_itinerary_document` | **Deprecated** — markdown→PDF via Puppeteer, kept for reference |
 
@@ -106,20 +110,29 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **The tool:** `upload_created_html_itinerary_document` takes `html_content`, wraps it in a full HTML document if needed, uploads to S3 as a `.html` file, and attaches to the itinerary.
 
-### 5.2 GPX Tracks as POIs via JSON, Not File Upload
-**Decision:** GPX tracks are parsed server-side into waypoints, then POSTed to the Vamoos `/poi` endpoint as a JSON object with `type: "track"` and `meta.waypoints` array.
+### 5.2 GPX Tracks and Map Pins as POIs via JSON, Not File Upload
+**Decision:** GPX tracks are parsed server-side into waypoints and POSTed to `/poi` as JSON with `type: "track"`. Named map pins are POSTed to `/poi` as JSON with `type: "poi"`. Both are then attached to the itinerary via the fetch-then-merge pattern.
 
-**Why:** The Vamoos API does not have a working `/poi/gpx` endpoint that accepts raw GPX files. Multiple approaches were tried (see Blind Alleys). The working approach is:
+**Why (GPX):** The Vamoos API does not have a working `/poi/gpx` endpoint that accepts raw GPX files. Multiple approaches were tried (see Blind Alleys). The working approach is:
 1. Parse the GPX XML server-side with regex to extract `<trkpt lat=... lon=...>` points
 2. POST to `/poi` with JSON: `{ type: "track", latitude, longitude, meta: { waypoints: [...] } }`
 3. POST to `/itinerary` with `pois: [{ id: poi.id, is_on: true }]`
 
-**POI fields that matter:**
+**POI fields for tracks:**
 - `type: "track"` — tells Vamoos to render as a route line, not a pin
 - `is_default_on: true` — track is visible by default in the app without user enabling it
 - `meta.waypoints` — array of `{latitude, longitude}` objects containing the full route
 - `latitude`, `longitude` — the first waypoint, used as the POI anchor point
 - `icon_id: 1` — default icon (required by API)
+
+**POI fields for named map pins (`add_poi_and_attach_to_itinerary`):**
+- `type: "poi"` — renders as a named pin on the map
+- `name` — display name shown in the app
+- `latitude`, `longitude` — position of the pin
+- `is_default_on: true`, `poi_range: 100`, `icon_id: 1`, `meta: {}` — standard defaults
+- A corresponding `locations` entry (`{ name, latitude, longitude }`) is also appended to the itinerary
+
+**Note:** Whether `is_default_on: true` and the `poi_range` value produce the correct in-app visibility behaviour for both tracks and pins is not yet visually confirmed — to be checked with Alisdair (see TODO).
 
 ### 5.3 Vamoos API: POST for Both Create and Update
 **Decision:** Use `POST /itinerary/{operator}/{reference_code}` for both creating AND updating trips.
@@ -176,6 +189,25 @@ body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <fie
 - `pois` — deduplicate by `id` (new entry wins if same id appears twice): `mergePois(existing, incoming)`
 - `documents.travel` — deduplicate by `file_url` (new entry wins): `mergeTravelDocs(existing, incoming)`
 - `locations` — append without deduplication (same name + different coords is valid): `[...existing, ...incoming]`
+
+**`background` and `documents` are separate top-level fields** — `background` holds a single image, `documents` holds travel/destination doc arrays. They are independent in the API schema. However, because the POST is a full overwrite, updating background still requires re-sending the existing `documents` (and vice versa) or those docs will be deleted.
+
+**Field-level sanitisation inside `pickWritable()` — GET vs POST shape mismatches:**
+
+Several fields are returned by GET as richer "read" objects but POST only accepts slimmer "write" objects, with `additionalProperties: false`. Each needs stripping before re-posting:
+
+| Field | Extra fields in GET response | POST write schema allows | Sanitisation |
+|-------|------------------------------|--------------------------|--------------|
+| `background` | `id`, `tag`, `operator_id`, `file.*`, `path`, `created_by`, etc. | `{ file_url, name }` | `sanitizeLibraryNode()` via `sanitizeBackground()` |
+| `documents.travel` / `.destination` | same as background, plus `documents.all` computed array | `{ file_url, name }` | `getExistingDocuments()` strips to writable shape, excludes `.all` (fixed 20 March 2026) |
+| `locations[]` | `id`, `itinerary_id`, `country`, `country_iso`, `timezone`, `created_at`, `updated_at` | `{ name, latitude, longitude, description?, icon_id? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
+| `notifications[]` | `id`, `itinerary_id`, `created_at`, `updated_at` | `{ type, content?, url?, is_active? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
+
+**Note on HTTP 408 (20 March 2026):** A 408 Request Timeout was observed on a date-change update for trip ibtest2003-4. The same operation succeeded immediately before and after the `locations`/`notifications` sanitisation fixes were applied, confirming the 408 was a transient network/server timeout, not a code bug. The sanitisation fixes are still correct and necessary for trips that have locations or notifications set, as those would cause 422 validation errors.
+
+**Fields that do NOT need sanitisation:**
+- `pois` — already handled by `getExistingPois()` which strips each POI to `{ id, is_on }` only (the POST pois schema only accepts those two fields)
+- `flights` — not in `WRITABLE_ITINERARY_FIELDS` at all. The GET response returns full `flight_get` objects (read-only); flights are associated with a trip via a separate `flight_ids` mechanism, not by re-posting the flights array
 
 **Exception:** `create_itinerary` intentionally creates a fresh record and does NOT fetch first. All other tools that call POST /itinerary must fetch first.
 
@@ -259,7 +291,7 @@ All attempts failed. The API returned errors.
 
 ---
 
-## 7. Current State (19 March 2026)
+## 7. Current State (22 March 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -271,12 +303,16 @@ All attempts failed. The API returned errors.
 - ✅ Auto-deploy on push via GitHub Actions
 - ✅ Background field round-trip mapping fixed (GET `file.s3_url` → POST `file_url`)
 - ✅ Vamoos API reference files added: VAMOOS_API_SPEC.txt, VAMOOS_FIELD_NOTES.md
+- ✅ `pickWritable()` sanitisation for `locations`, `notifications` — strip read-only fields before POST (20 March 2026)
+- ✅ `getExistingDocuments()` — excludes `documents.all` computed array from POST payload (20 March 2026)
+- ✅ `add_poi_and_attach_to_itinerary` tool — create named map pin (`type: "poi"`) and attach to trip (20 March 2026)
+- ✅ `add_flight_to_itinerary` tool — look up flight via `/flight/lookup`, attach via `flight_ids`; `pickWritable()` derives `flight_ids` from existing `flights[]` so existing flights are preserved (22 March 2026)
+- ✅ `add_location_to_itinerary` tool — add a standalone location without a POI; POI tools already auto-add a location so this is only needed when there is no POI (22 March 2026)
+- ✅ Chatbot updated with all new tools and system prompt guidance (22 March 2026)
 
 ### Under Investigation / Next Steps
-- 🔍 Verify GPX tool uses fetch-then-merge correctly for `pois` array
-- 🔍 Verify `upload_poi` tool works with fetch-then-merge pattern
 - 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
-- 🔍 GPX track display in Vamoos mobile app not yet visually verified
+- 🔍 GPX track and POI visibility in Vamoos mobile app not yet visually verified — check `is_default_on`, `poi_range`, `type` values with Alisdair
 - ❓ The `upload_document` Puppeteer/PDF path is untested end-to-end after the HTML→direct-upload change
 
 ### Known Limitations
@@ -322,11 +358,18 @@ List itineraries:
   GET /itinerary?page=1&per_page=50
   (NO operator code in path — header only)
 
-Create POI (including tracks):
+Create POI — track (GPX route line):
   POST /poi
   Body: { name, latitude, longitude, type: "track", icon_id: 1,
           is_default_on: true, poi_range: 100,
           meta: { waypoints: [{latitude, longitude}, ...] },
+          location: null, position: null, description: null,
+          file: null, timezone: null, children: [], localisation: {} }
+
+Create POI — named map pin:
+  POST /poi
+  Body: { name, latitude, longitude, type: "poi", icon_id: 1,
+          is_default_on: true, poi_range: 100, meta: {},
           location: null, position: null, description: null,
           file: null, timezone: null, children: [], localisation: {} }
 
@@ -398,6 +441,8 @@ This means **every push to the working `claude/` branch deploys immediately** �
 
 This means **every push to the working `claude/` branch also deploys to Netlify immediately**, same as the Cloudflare Worker.
 
+> **Important:** Each branch gets its own unique deploy URL — it is **not** the production URL. To test a branch deploy, find the branch-specific URL in the Netlify dashboard (Deploys tab → click the deploy → "Open deploy" button). The URL format is `https://<branch-slug>--<site-name>.netlify.app`. The production URL only updates when `main` is pushed.
+
 **Build config** (`netlify.toml` in repo root):
 ```toml
 [build]
@@ -442,4 +487,4 @@ This means **every push to the working `claude/` branch also deploys to Netlify 
 
 ---
 
-*Document generated 18 March 2026 — deployment section added 20 March 2026*
+*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026*

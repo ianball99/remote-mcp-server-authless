@@ -5,11 +5,11 @@
 At the start of every session, Claude must do the following **before any other work**:
 
 1. **Remind the user** to add the chatbot repo to the session: `ianball99/claude-code-chatbot-v1`
-2. **GitHub Personal Access Token (PAT):** `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` — use this for all git pushes to `master` or any protected branch. Set it with:
+2. **Ask the user for their GitHub Personal Access Token (PAT)** — needed for pushing to `master` or protected branches. Set it with:
    ```
-   git remote set-url origin https://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@github.com/ianball99/remote-mcp-server-authless.git
+   git remote set-url origin https://<PAT>@github.com/ianball99/remote-mcp-server-authless.git
    ```
-   Do **not** ask the user for their PAT — it is already stored here.
+   Do **not** store the PAT value in this file — GitHub push protection will block the push on public repos.
 3. **Read this file (CLAUDE.md)** and **DESIGN_DOC.md** — always fetch the latest versions from `master` on `ianball99/remote-mcp-server-authless`
 4. **If the session involves Vamoos API work**, also read **VAMOOS_API_SPEC.txt** and **VAMOOS_FIELD_NOTES.md** from `master` — these document the official API schema and confirmed GET/POST field mappings
 5. **Read TODO.md** (in this repo, `master` branch), show the user the open items, then **ask what they want to work on**
@@ -110,6 +110,9 @@ This means **commits pushed to the working `claude/...` branch are deployed imme
 
 **Repo:** `ianball99/claude-code-chatbot-v1` (public), deployed via Netlify.
 
-Netlify is configured to deploy from **all branches** (confirmed 20 March 2026). Every push to any branch — including `claude/**` — triggers a Netlify deploy automatically. There is no need to merge to `main` first.
+Netlify deploys from **all branches** (branch deploys enabled). Each pushed branch gets its own preview URL. The production URL tracks `main`.
 
-To review or change this setting: Netlify → Site → Site configuration → Build & deploy → Continuous deployment → Branch deploys.
+- Pushing a `claude/` branch triggers a branch deploy immediately — no merge needed to test
+- To update the **production URL**, merge to `main`
+- Branch deploy URL format: `https://<branch-slug>--<site-name>.netlify.app`
+- To review or change this setting: Netlify → Site → Site configuration → Build & deploy → Continuous deployment → Branch deploys.

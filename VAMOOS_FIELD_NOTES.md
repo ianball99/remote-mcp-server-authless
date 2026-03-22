@@ -82,6 +82,8 @@ This is implemented in `sanitizeBackground()` in `src/index.ts`.
 
 `documents.travel` is an array of `library_node_read` objects (same shape as background above).
 
+The GET response also includes a computed `documents.all` array that merges travel and destination docs. **This field must never be sent in POST** — it is not a writable field and will cause `additionalProperties` validation errors. Confirmed 20 March 2026.
+
 ### What POST accepts
 
 `documents.travel` is an array of `library_node_upload` objects:
@@ -97,6 +99,86 @@ doc.file_url  →  POST body travel item: { file_url: doc.file_url, name: doc.na
 ```
 
 The GET response for documents returns `file_url` directly on each travel item (not nested inside a `file` object like background). Deduplication is by `file_url`.
+
+`getExistingDocuments()` in `src/index.ts` handles stripping to the writable shape and excluding `documents.all`.
+
+---
+
+## 3a. Locations — GET vs POST Shape and Auto-Add Behaviour
+
+**Confirmed 20 March 2026.** The GET response for `locations[]` includes read-only server fields that the POST endpoint rejects:
+
+| GET includes (read-only) | POST accepts |
+|---|---|
+| `id`, `itinerary_id` | ✗ |
+| `country`, `country_iso` | ✗ |
+| `timezone` | ✗ |
+| `created_at`, `updated_at` | ✗ |
+| `name`, `latitude`, `longitude` | ✓ |
+| `description`, `icon_id` | ✓ |
+
+Strip to `{ name, latitude, longitude }` (plus optional `description`, `icon_id`) before re-posting. Sending raw GET locations causes `additionalProperties.openapi.validation` errors.
+
+This is handled inline in `pickWritable()`.
+
+**Auto-add behaviour (22 March 2026):** POI tools (`add_poi_and_attach_to_itinerary`, `create_and_add_poi`) automatically append a matching `locations` entry alongside each POI so that the POI's area appears on the trip map. The standalone `add_location_to_itinerary` tool should therefore only be used when adding a location *without* a POI — e.g. a city stopover with no specific POI.
+
+---
+
+## 3b. Notifications — GET vs POST Shape
+
+**Confirmed 20 March 2026.** Same issue as locations.
+
+| GET includes (read-only) | POST accepts |
+|---|---|
+| `id`, `itinerary_id` | ✗ |
+| `created_at`, `updated_at` | ✗ |
+| `type`, `content`, `url`, `is_active` | ✓ |
+
+Strip to `{ type, content, url, is_active }` before re-posting.
+
+This is handled inline in `pickWritable()`.
+
+---
+
+## 3c. Flights — GET vs POST Shape
+
+**Confirmed 22 March 2026.** Flights are managed via a separate lookup endpoint and a `flight_ids` writable field — they are NOT updated by including raw flight objects in the itinerary POST.
+
+### How to add a flight to a trip
+
+**Step 1 — Look up the flight:**
+
+```
+GET /flight/lookup/{carrier_code}/{flight_number}/{departure_airport}/{arrival_airport}/{date}
+```
+
+Returns an array of `flight_get` objects. Use the `id` from the first (or chosen) leg.
+
+**Step 2 — POST itinerary with `flight_ids`:**
+
+```json
+{ "flight_ids": [12345, 67890] }
+```
+
+Include the new id merged with any existing flight ids (see below).
+
+### Round-trip: preserving existing flights
+
+The GET response includes a `flights` array of full `flight_get` objects (read-only). The POST write field is `flight_ids` — an array of integer ids. They are different fields.
+
+`pickWritable()` derives `flight_ids` from `existing.flights` automatically:
+
+```
+existing.flights[].id  →  POST body: { flight_ids: [id, id, ...] }
+```
+
+This ensures any existing flights are preserved when making any other itinerary update (e.g. adding a POI or document). Before this fix, every itinerary POST would silently clear all flights.
+
+| GET returns | POST accepts |
+|---|---|
+| `flights: [{ id, carrier_flight_number, departure_at_utc, ... }]` | ✗ (read-only) |
+| _(derived)_ | `flight_ids: [integer, ...]` ✓ |
 
 ---
 
@@ -118,9 +200,22 @@ The `s3url` from step 1 is the value to use as `file_url` in the POST.
 
 ## 5. `pois` Round-trip
 
-GET returns full `poi_get` objects. POST accepts `{ id: integer, is_on: boolean }`.
+GET returns full `poi_get` objects. POST **itinerary** accepts `{ id: integer, is_on: boolean }` per POI — nothing else.
 
 Round-trip: extract `{ id: poi.id, is_on: poi.is_on }` from each GET poi. Implemented in `getExistingPois()` / `mergePois()`.
+
+### POI types (POST /poi)
+
+When **creating** a POI (POST `/poi`), the `type` field controls rendering:
+
+| `type` | Renders as | Key extra fields |
+|---|---|---|
+| `"track"` | Route line on map | `meta.waypoints: [{latitude, longitude}]` |
+| `"poi"` | Named pin on map | `meta: {}` (empty) |
+
+Both use the same other defaults: `icon_id: 1`, `is_default_on: true`, `poi_range: 100`, `location: null`, `position: null`, `description: null`, `file: null`, `timezone: null`, `children: []`, `localisation: {}`.
+
+**Note:** In-app visibility behaviour of `is_default_on` and `poi_range` for both types not yet visually confirmed — to be verified with Alisdair.
 
 ---
 

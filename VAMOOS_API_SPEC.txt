@@ -359,6 +359,9 @@ components:
       additionalProperties: false
 
     flight_get:
+      # Returned in itinerary_read.flights[] — read-only, do NOT send back in POST.
+      # To associate flights with an itinerary use flight_ids (array of integer) in itinerary_write.
+      # To obtain a flight id, use GET /flight/lookup/{carrier_code}/{flight_number}/{dep}/{arr}/{date}
       type: object
       properties:
         id: {type: integer}
@@ -366,10 +369,37 @@ components:
         departure_date_local: {type: string}
         departure_at_utc: {type: string, format: date-time}
         arrival_at_utc: {type: string, format: date-time}
-        status: {type: string}
+        status: {type: string, description: "A Active / C Canceled / D Diverted / L Landed / S Scheduled / U Unknown"}
+        status_verbose: {type: string}
+        departure_terminal: {type: string}
+        departure_gate: {type: string}
+        arrival_terminal: {type: string}
+        arrival_gate: {type: string}
+        aircraft_type: {type: string}
+        tail_number: {type: string}
+        baggage: {type: string}
+        departure_airport: {type: object}
+        arrival_airport: {type: object}
+        carrier: {type: object}
+        operator: {type: object}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
       additionalProperties: false
+
+  # -----------------------------------------------------------------------
+  # FLIGHT LOOKUP (GET — returns flight record with id for use in flight_ids)
+  # -----------------------------------------------------------------------
+  # GET /flight/lookup/{carrier_code}/{flight_number}/{departure_airport}/{arrival_airport}/{date}
+  #
+  # Path parameters:
+  #   carrier_code:       Airline IATA (e.g. BA) or ICAO (e.g. BAW) code
+  #   flight_number:      Integer — digits only (e.g. 733 for BA733)
+  #   departure_airport:  IATA or ICAO airport code
+  #   arrival_airport:    IATA or ICAO airport code
+  #   date:               YYYY-MM-DD — local departure date at departure airport
+  #
+  # Returns: array of flight_get objects (may be multiple for codeshare/multi-leg)
+  # Use the id from the first (or chosen) object as the value in itinerary_write.flight_ids
 
     itinerary_meta:
       type: object

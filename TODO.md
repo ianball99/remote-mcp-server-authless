@@ -9,10 +9,17 @@
 
 - [ ] (add items here)
 
+## Investigate
+
+- [ ] **22 Mar 2026 — fetch error / token rate limit on new trip** — Sequence: listed itineraries, then asked chatbot to create a 'new trip' → got a 'fetch error'. Retried → got 'token rate limit exceeded'. Unclear whether root cause is (a) chatbot hitting Anthropic rate limit mid-request, (b) Vamoos API token exhausted, or (c) a transient network/worker error masking the real cause. Reproduce and check Cloudflare Worker logs + chatbot error handling.
+- [ ] **22 Mar 2026 — HTTP 400 when adding POI to trip with existing GPX track location** — `add_poi_and_attach_to_itinerary` failed at step 3/3 with `openapi-validation` errors on `locations[0]`: fields like `id`, `operator_id`, `created_at`, `itinerary_id`, `loc_position`, `on_weather`, `on_maps` rejected as additional properties, and `$source` required but missing. Root cause: existing locations from GET response were spread raw into the update payload, bypassing the `pickWritable` stripping. **Fixed 22 Mar 2026** — same bug was in all three POI/GPX handlers; fixed by calling `pickWritable` once and reading `locations` from the result before appending the new location. Deployed via `claude/fix-itinerary-merge-ZBL1t`. Needs re-test to confirm.
+
 ## Backlog
 
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify it uses fetch-then-merge correctly (pois array must be merged, not overwritten)
 - [ ] Revisit `upload_poi` tool — check it works correctly with fetch-then-merge pattern
+- [ ] Check GPX track and POI visibility settings — confirm `is_default_on`, `poi_range`, and `type` values are correct for display in Vamoos app. Check with Alisdair.
+- [ ] Build `add_flight_to_itinerary` tool — allow Claude to add a flight to an itinerary via Vamoos API
 - [ ] Rework `upload_created_html_itinerary_document` to support a retrieve-edit-replace flow:
   - Retrieve current HTML document from itinerary and show user
   - Allow user to request changes via chatbot

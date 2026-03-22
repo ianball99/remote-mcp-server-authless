@@ -147,32 +147,47 @@ type TravelDoc = { file_url: string; name: string };
 
 // Fields the Vamoos POST /itinerary API accepts. Read-only server fields
 // (id, operator_id, version, created_at, flights, etc.) must NOT be sent back.
+// Source of truth: itinerary_write schema in VAMOOS_API_SPEC.txt (additionalProperties: false).
 const WRITABLE_ITINERARY_FIELDS = [
-	"vamoos_id", "departure_date", "return_date",
-	"field1", "field2", "field3", "field4", "field5",
+	"vamoos_id", "departure_date", "return_date", "timezone",
+	"field1", "field2", "field3", "field4",
 	"background", "pois", "documents", "locations",
-	"storyboard", "notifications", "widgets",
+	"notifications", "meta",
 ] as const;
 
-// The GET response returns background as a full media-library node (with id, tag,
-// operator_id, file, path, created_at, etc.) but the POST schema only accepts a
-// small set of fields. Strip it down to just what POST accepts.
-// NOTE: the GET response uses "file" for the URL; we map it to "file_url" for POST.
-const BACKGROUND_WRITABLE_FIELDS = ["file_url", "file_id", "library_node_id", "web_url", "children"] as const;
-function sanitizeBackground(bg: unknown): unknown {
-	if (typeof bg === "string" || bg === null || bg === undefined) return bg;
-	if (typeof bg !== "object") return bg;
-	const node = bg as Record<string, unknown>;
+// The GET response returns background/documents as full library_node_read objects
+// (with id, tag, operator_id, file.s3_url, path, created_at, etc.) but the POST
+// schema only accepts library_node_upload shapes. Strip down to just what POST accepts.
+// NOTE: the GET response stores the URL in "file.s3_url" — we map it to "file_url" for POST.
+function sanitizeLibraryNode(node: unknown): Record<string, unknown> | undefined {
+	if (typeof node !== "object" || node === null) return undefined;
+	const n = node as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
-	for (const key of BACKGROUND_WRITABLE_FIELDS) {
-		if (node[key] !== undefined) out[key] = node[key];
+	// Preserve name if present
+	if (typeof n.name === "string") out.name = n.name;
+	// Case 1: already a file_url_upload_object (has file_url directly)
+	if (typeof n.file_url === "string") {
+		out.file_url = n.file_url;
+		return out;
 	}
-	// GET response stores the URL in "file.s3_url" — map it to "file_url" for POST
-	if (out.file_url === undefined && typeof node.file === "object" && node.file !== null) {
-		const f = node.file as Record<string, unknown>;
-		if (typeof f.s3_url === "string") out.file_url = f.s3_url;
+	// Case 2: library_node_read — URL is nested at file.s3_url
+	if (typeof n.file === "object" && n.file !== null) {
+		const f = n.file as Record<string, unknown>;
+		if (typeof f.s3_url === "string") {
+			out.file_url = f.s3_url;
+			return out;
+		}
 	}
-	return Object.keys(out).length > 0 ? out : undefined;
+	// Case 3: library_node_upload_object — reference by id
+	if (typeof n.library_node_id === "number") {
+		out.library_node_id = n.library_node_id;
+		return out;
+	}
+	return undefined;
+}
+
+function sanitizeBackground(bg: unknown): unknown {
+	return sanitizeLibraryNode(bg);
 }
 
 function pickWritable(existing: Record<string, unknown>): Record<string, unknown> {
@@ -182,9 +197,50 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 		if (key === "background") {
 			const sanitized = sanitizeBackground(existing[key]);
 			if (sanitized !== undefined) out[key] = sanitized;
+		} else if (key === "documents") {
+			// Strip read-only server fields and documents.all (computed); sanitize to writable shape
+			const { travel, destination } = getExistingDocuments(existing);
+			if (travel.length > 0 || destination.length > 0) {
+				const docsOut: Record<string, unknown> = { travel };
+				if (destination.length > 0) docsOut.destination = destination;
+				out[key] = docsOut;
+			}
+		} else if (key === "locations") {
+			// location_read includes id, itinerary_id, country, country_iso, timezone, created_at, updated_at
+			// location_write only accepts name, latitude, longitude, description, icon_id (additionalProperties: false)
+			const locs = existing[key];
+			if (Array.isArray(locs) && locs.length > 0) {
+				out[key] = locs.map((loc: unknown) => {
+					const l = loc as Record<string, unknown>;
+					const w: Record<string, unknown> = { name: l.name, latitude: l.latitude, longitude: l.longitude };
+					if (l.description !== undefined) w.description = l.description;
+					if (l.icon_id !== undefined) w.icon_id = l.icon_id;
+					return w;
+				});
+			}
+		} else if (key === "notifications") {
+			// notification_get includes id, itinerary_id, created_at, updated_at
+			// notification_write only accepts type, content, url, is_active (additionalProperties: false)
+			const notifs = existing[key];
+			if (Array.isArray(notifs) && notifs.length > 0) {
+				out[key] = notifs.map((n: unknown) => {
+					const notif = n as Record<string, unknown>;
+					const w: Record<string, unknown> = { type: notif.type };
+					if (notif.content !== undefined) w.content = notif.content;
+					if (notif.url !== undefined) w.url = notif.url;
+					if (notif.is_active !== undefined) w.is_active = notif.is_active;
+					return w;
+				});
+			}
 		} else {
 			out[key] = existing[key];
 		}
+	}
+	// flights is read-only in GET (full flight_get objects) but the writable form is flight_ids.
+	// Derive flight_ids from existing flights so they are preserved on any itinerary update.
+	const rawFlights = existing.flights;
+	if (Array.isArray(rawFlights) && rawFlights.length > 0) {
+		out.flight_ids = (rawFlights as Array<{ id: number }>).map(f => f.id);
 	}
 	return out;
 }
@@ -209,15 +265,46 @@ async function fetchItinerary(referenceCode: string, token: string): Promise<Rec
 function getExistingPois(existing: Record<string, unknown>): PoiRef[] {
 	const pois = existing.pois;
 	if (!Array.isArray(pois)) return [];
-	return pois.filter((p): p is PoiRef => typeof p === "object" && p !== null && typeof (p as PoiRef).id === "number");
+	return pois
+		.filter((p): boolean => typeof p === "object" && p !== null && typeof (p as Record<string, unknown>).id === "number")
+		.map(p => {
+			const poi = p as Record<string, unknown>;
+			return { id: poi.id as number, is_on: typeof poi.is_on === "boolean" ? poi.is_on : true };
+		});
 }
 
-function getExistingTravelDocs(existing: Record<string, unknown>): TravelDoc[] {
+// Extracts travel/destination doc arrays from GET response, sanitizing library_node_read
+// objects into the library_node_upload shape expected by POST.
+function getExistingDocuments(existing: Record<string, unknown>): { travel: TravelDoc[]; destination: TravelDoc[] } {
 	const docs = existing.documents;
-	if (typeof docs !== "object" || docs === null) return [];
-	const travel = (docs as Record<string, unknown>).travel;
-	if (!Array.isArray(travel)) return [];
-	return travel.filter((d): d is TravelDoc => typeof d === "object" && d !== null && typeof (d as TravelDoc).file_url === "string");
+	if (typeof docs !== "object" || docs === null) return { travel: [], destination: [] };
+	const d = docs as Record<string, unknown>;
+
+	const extractDocs = (arr: unknown): TravelDoc[] => {
+		if (!Array.isArray(arr)) return [];
+		return arr
+			.map(sanitizeLibraryNode)
+			.filter((item): item is Record<string, unknown> => item !== undefined && typeof item.file_url === "string")
+			.map(item => ({ file_url: item.file_url as string, name: typeof item.name === "string" ? item.name : "" }));
+	};
+
+	return {
+		travel: extractDocs(d.travel),
+		destination: extractDocs(d.destination),
+	};
+}
+
+// Legacy accessor kept for call sites that only need travel docs
+function getExistingTravelDocs(existing: Record<string, unknown>): TravelDoc[] {
+	return getExistingDocuments(existing).travel;
+}
+
+// Builds the full documents POST body, merging new travel docs and preserving destination docs.
+function buildDocumentsBody(existing: Record<string, unknown>, newTravelDocs: TravelDoc[]): Record<string, unknown> {
+	const { travel, destination } = getExistingDocuments(existing);
+	const result: Record<string, unknown> = { travel: mergeTravelDocs(travel, newTravelDocs) };
+	if (destination.length > 0) result.destination = destination;
+	return result;
 }
 
 function mergePois(existing: PoiRef[], incoming: PoiRef[]): PoiRef[] {
@@ -322,12 +409,13 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 
 			// Fetch existing itinerary, spread all fields, merge pois/locations
 			const existing = await fetchItinerary(referenceCode, env.VAMOOS_API_TOKEN);
+			const writableExisting = pickWritable(existing);
 			const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
-			const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+			const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
 			const mergedLocations = [...existingLocations, { name: `Location-${poiName}`, latitude, longitude }];
 
 			const gpxItinBody: Record<string, unknown> = {
-				...pickWritable(existing),
+				...writableExisting,
 				vamoos_id: vamoosId,
 				departure_date: departureDate,
 				return_date: returnDate,
@@ -372,7 +460,7 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		};
 
 		if (uploadType === "document") {
-			itineraryBody.documents = { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: documentName }]) };
+			itineraryBody.documents = buildDocumentsBody(existing, [{ file_url: s3url, name: documentName }]);
 		} else {
 			itineraryBody.background = { file_url: s3url, name: "Background Image" };
 		}
@@ -779,7 +867,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						vamoos_id,
 						departure_date,
 						return_date,
-						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
 					const response = await fetch(
@@ -897,13 +985,14 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					// Step 2: Fetch existing itinerary, spread all fields, merge pois/locations
 					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
 					const locationName = `Location-${poiName}`;
 					const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
-					const existingLocations = Array.isArray(existing.locations) ? existing.locations : [];
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
 					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
 
 					const itinPayload: Record<string, unknown> = {
-						...pickWritable(existing),
+						...writableExisting,
 						vamoos_id,
 						departure_date,
 						return_date,
@@ -944,6 +1033,308 @@ export class VamoosMCP extends McpAgent<Env> {
 					return {
 						content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }],
 					};
+				}
+			},
+		);
+
+		// Add a POI (type=poi) and attach it to an itinerary
+		this.server.tool(
+			"add_poi_and_attach_to_itinerary",
+			"Add a Point of Interest (POI) to Vamoos and attach it to a trip. The POI will appear on the map in the Vamoos app. Provide a name and coordinates.",
+			{
+				reference_code: z
+					.string()
+					.min(1)
+					.max(64)
+					.describe("Reference code (Passcode) of the itinerary"),
+				vamoos_id: z
+					.number()
+					.int()
+					.describe("The vamoos_id of the itinerary"),
+				departure_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Departure date (YYYY-MM-DD)"),
+				return_date: z
+					.string()
+					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
+					.describe("Return date (YYYY-MM-DD)"),
+				name: z
+					.string()
+					.describe("Display name for the POI"),
+				latitude: z
+					.string()
+					.describe("Latitude of the POI (e.g. \"48.8566\")"),
+				longitude: z
+					.string()
+					.describe("Longitude of the POI (e.g. \"2.3522\")"),
+			},
+			async ({ reference_code, vamoos_id, departure_date, return_date, name, latitude, longitude }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: POST to /poi with JSON
+					const poiPayload = {
+						name,
+						location: null,
+						latitude,
+						longitude,
+						position: null,
+						description: null,
+						icon_id: 1,
+						timezone: null,
+						is_default_on: true,
+						poi_range: 100,
+						file: null,
+						meta: {},
+						type: "poi",
+						children: [],
+						localisation: {},
+					};
+					log.push(`[1/3] POST ${VAMOOS_BASE_URL}/poi — payload:\n${JSON.stringify(poiPayload, null, 2)}`);
+
+					const poiResponse = await fetch(`${VAMOOS_BASE_URL}/poi`, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+						body: JSON.stringify(poiPayload),
+					});
+
+					const poiData = await safeJson(poiResponse);
+					log.push(`[1/3] POST /poi → HTTP ${poiResponse.status}\n${JSON.stringify(poiData, null, 2)}`);
+
+					if (!poiResponse.ok) {
+						return {
+							content: [{ type: "text", text: `=== FAILED at step 1/3 (create POI) ===\n${log.join("\n\n")}` }],
+						};
+					}
+
+					const poi = poiData as { id: number };
+					log.push(`[2/3] POI created with id=${poi.id}`);
+
+					// Step 2: Fetch existing itinerary, spread all fields, merge pois/locations
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const locationName = `Location-${name}`;
+					const mergedPois = mergePois(getExistingPois(existing), [{ id: poi.id, is_on: true }]);
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
+					const mergedLocations = [...existingLocations, { name: locationName, latitude, longitude }];
+
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						departure_date,
+						return_date,
+						pois: mergedPois,
+						locations: mergedLocations,
+					};
+
+					log.push(`[3/3] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify({ ...itinPayload, pois: `[${mergedPois.length} pois]`, locations: `[${mergedLocations.length} locations]` }, null, 2)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[3/3] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return {
+							content: [{ type: "text", text: `=== FAILED at step 3/3 (attach POI to itinerary) ===\n${log.join("\n\n")}` }],
+						};
+					}
+
+					return {
+						content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }],
+					};
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return {
+						content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }],
+					};
+				}
+			},
+		);
+
+		// Look up a flight and attach it to an itinerary via flight_ids
+		this.server.tool(
+			"add_flight_to_itinerary",
+			"Look up a flight by carrier code, flight number, airports and date, then attach it to a Vamoos trip. Trip details (vamoos_id, dates) are fetched automatically — only the reference_code is needed to identify the trip. Carrier code and flight number may be given together (e.g. 'BA733') — split them before calling: carrier_code='BA', flight_number=733. Airports should be IATA codes (e.g. LHR, JFK) — use web_search to look them up if not provided. Existing flights on the trip are preserved.",
+			{
+				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
+				carrier_code: z.string().min(2).max(4).describe("Airline IATA (e.g. BA) or ICAO (e.g. BAW) code — letters only, no digits"),
+				flight_number: z.number().int().positive().describe("Flight number — digits only, no carrier prefix (e.g. 733 for BA733)"),
+				departure_airport: z.string().min(3).max(4).describe("IATA (e.g. LHR) or ICAO code of departure airport"),
+				arrival_airport: z.string().min(3).max(4).describe("IATA (e.g. JFK) or ICAO code of arrival airport"),
+				date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").describe("Date of flight departure (local time at departure airport), YYYY-MM-DD"),
+			},
+			async ({ reference_code, carrier_code, flight_number, departure_airport, arrival_airport, date }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: Look up flight
+					const flightUrl = `${VAMOOS_BASE_URL}/flight/lookup/${encodeURIComponent(carrier_code)}/${flight_number}/${encodeURIComponent(departure_airport)}/${encodeURIComponent(arrival_airport)}/${date}`;
+					log.push(`[1/3] GET ${flightUrl}`);
+					const flightResponse = await fetch(flightUrl, {
+						headers: {
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+					});
+					const flightData = await safeJson(flightResponse);
+					log.push(`[1/3] GET /flight/lookup → HTTP ${flightResponse.status}\n${JSON.stringify(flightData, null, 2)}`);
+
+					if (!flightResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 1/3 (flight lookup) ===\n${log.join("\n\n")}` }] };
+					}
+
+					const flightLegs = Array.isArray(flightData) ? flightData : [];
+					if (flightLegs.length === 0) {
+						return { content: [{ type: "text", text: `=== FAILED at step 1/3 (no flights found) ===\n${log.join("\n\n")}` }] };
+					}
+
+					const flight = flightLegs[0] as { id: number; carrier_flight_number?: string; departure_at_utc?: string; arrival_at_utc?: string; status?: string };
+					log.push(`[1/3] Found ${flightLegs.length} leg(s). Using first: id=${flight.id} ${flight.carrier_flight_number ?? ""} dep=${flight.departure_at_utc ?? ""} arr=${flight.arrival_at_utc ?? ""} status=${flight.status ?? ""}`);
+
+					// Step 2: Fetch existing itinerary (fetch-then-merge)
+					log.push(`[2/3] GET ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const vamoos_id = existing.vamoos_id as number;
+					const departure_date = existing.departure_date as string;
+					const return_date = existing.return_date as string;
+
+					// pickWritable already extracted existing flight_ids from the flights array
+					const existingFlightIds = Array.isArray(writableExisting.flight_ids) ? writableExisting.flight_ids as number[] : [];
+					const mergedFlightIds = existingFlightIds.includes(flight.id) ? existingFlightIds : [...existingFlightIds, flight.id];
+					log.push(`[2/3] Fetched itinerary: vamoos_id=${vamoos_id} departure=${departure_date} return=${return_date}. Existing flight_ids=[${existingFlightIds.join(", ")}] → merged=[${mergedFlightIds.join(", ")}]`);
+
+					// Step 3: POST itinerary with merged flight_ids
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						departure_date,
+						return_date,
+						flight_ids: mergedFlightIds,
+					};
+
+					const poisSummary = Array.isArray(itinPayload.pois) ? `[${(itinPayload.pois as unknown[]).length} pois]` : itinPayload.pois;
+					log.push(`[3/3] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify({ ...itinPayload, pois: poisSummary }, null, 2)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[3/3] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 3/3 (attach flight to itinerary) ===\n${log.join("\n\n")}` }] };
+					}
+
+					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return { content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }] };
+				}
+			},
+		);
+
+		// Add a standalone location to an itinerary (without a POI).
+		// NOTE: POI tools already add a matching location automatically alongside each POI,
+		// so this tool is NOT needed after adding a POI. Use it only when there is no POI
+		// to add — e.g. a city or region the trip passes through — to make nearby global
+		// Vamoos POIs visible for the trip. Locations appear on the trip map (separate tab
+		// from POIs).
+		this.server.tool(
+			"add_location_to_itinerary",
+			"Add a standalone location to a Vamoos trip (no POI). NOTE: POI tools already add a location automatically alongside each POI, so this tool is only needed when adding a location without a POI — e.g. to add a city or stopover so that nearby global Vamoos POIs become visible for the trip. Locations appear on the trip map in a separate tab from POIs. Only the reference_code is needed to identify the trip. Existing locations are preserved.",
+			{
+				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
+				name: z.string().min(1).max(128).describe("Display name for the location (e.g. 'Rome', 'Heathrow Airport')"),
+				latitude: z.string().describe("Latitude (e.g. '41.9028')"),
+				longitude: z.string().describe("Longitude (e.g. '12.4964')"),
+				description: z.string().optional().describe("Optional description shown in the app"),
+				icon_id: z.number().int().optional().describe("Optional icon ID"),
+			},
+			async ({ reference_code, name, latitude, longitude, description, icon_id }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: Fetch existing itinerary (fetch-then-merge)
+					log.push(`[1/2] GET ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const vamoos_id = existing.vamoos_id as number;
+					const departure_date = existing.departure_date as string;
+					const return_date = existing.return_date as string;
+
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
+					const newLocation: Record<string, unknown> = { name, latitude, longitude };
+					if (description !== undefined) newLocation.description = description;
+					if (icon_id !== undefined) newLocation.icon_id = icon_id;
+					const mergedLocations = [...existingLocations, newLocation];
+
+					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing locations=${existingLocations.length} → merged=${mergedLocations.length}`);
+
+					// Step 2: POST itinerary with merged locations
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						departure_date,
+						return_date,
+						locations: mergedLocations,
+					};
+
+					log.push(`[2/2] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[2/2] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 2/2 ===\n${log.join("\n\n")}` }] };
+					}
+
+					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return { content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }] };
 				}
 			},
 		);
@@ -995,7 +1386,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						vamoos_id,
 						departure_date,
 						return_date,
-						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
 					const response = await fetch(
@@ -1115,7 +1506,7 @@ export class VamoosMCP extends McpAgent<Env> {
 						vamoos_id,
 						departure_date,
 						return_date,
-						documents: { travel: mergeTravelDocs(getExistingTravelDocs(existing), [{ file_url: s3url, name: document_name }]) },
+						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
 					const response = await fetch(
