@@ -236,6 +236,12 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 			out[key] = existing[key];
 		}
 	}
+	// flights is read-only in GET (full flight_get objects) but the writable form is flight_ids.
+	// Derive flight_ids from existing flights so they are preserved on any itinerary update.
+	const rawFlights = existing.flights;
+	if (Array.isArray(rawFlights) && rawFlights.length > 0) {
+		out.flight_ids = (rawFlights as Array<{ id: number }>).map(f => f.id);
+	}
 	return out;
 }
 
@@ -1159,6 +1165,100 @@ export class VamoosMCP extends McpAgent<Env> {
 					return {
 						content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }],
 					};
+				}
+			},
+		);
+
+		// Look up a flight and attach it to an itinerary via flight_ids
+		this.server.tool(
+			"add_flight_to_itinerary",
+			"Look up a flight by carrier code, flight number, airports and date, then attach it to a Vamoos trip. Trip details (vamoos_id, dates) are fetched automatically — only the reference_code is needed to identify the trip. Carrier code and flight number may be given together (e.g. 'BA733') — split them before calling: carrier_code='BA', flight_number=733. Airports should be IATA codes (e.g. LHR, JFK) — use web_search to look them up if not provided. Existing flights on the trip are preserved.",
+			{
+				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
+				carrier_code: z.string().min(2).max(4).describe("Airline IATA (e.g. BA) or ICAO (e.g. BAW) code — letters only, no digits"),
+				flight_number: z.number().int().positive().describe("Flight number — digits only, no carrier prefix (e.g. 733 for BA733)"),
+				departure_airport: z.string().min(3).max(4).describe("IATA (e.g. LHR) or ICAO code of departure airport"),
+				arrival_airport: z.string().min(3).max(4).describe("IATA (e.g. JFK) or ICAO code of arrival airport"),
+				date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").describe("Date of flight departure (local time at departure airport), YYYY-MM-DD"),
+			},
+			async ({ reference_code, carrier_code, flight_number, departure_airport, arrival_airport, date }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: Look up flight
+					const flightUrl = `${VAMOOS_BASE_URL}/flight/lookup/${encodeURIComponent(carrier_code)}/${flight_number}/${encodeURIComponent(departure_airport)}/${encodeURIComponent(arrival_airport)}/${date}`;
+					log.push(`[1/3] GET ${flightUrl}`);
+					const flightResponse = await fetch(flightUrl, {
+						headers: {
+							Accept: "application/json",
+							"X-Operator-Code": OPERATOR_CODE,
+							"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+						},
+					});
+					const flightData = await safeJson(flightResponse);
+					log.push(`[1/3] GET /flight/lookup → HTTP ${flightResponse.status}\n${JSON.stringify(flightData, null, 2)}`);
+
+					if (!flightResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 1/3 (flight lookup) ===\n${log.join("\n\n")}` }] };
+					}
+
+					const flightLegs = Array.isArray(flightData) ? flightData : [];
+					if (flightLegs.length === 0) {
+						return { content: [{ type: "text", text: `=== FAILED at step 1/3 (no flights found) ===\n${log.join("\n\n")}` }] };
+					}
+
+					const flight = flightLegs[0] as { id: number; carrier_flight_number?: string; departure_at_utc?: string; arrival_at_utc?: string; status?: string };
+					log.push(`[1/3] Found ${flightLegs.length} leg(s). Using first: id=${flight.id} ${flight.carrier_flight_number ?? ""} dep=${flight.departure_at_utc ?? ""} arr=${flight.arrival_at_utc ?? ""} status=${flight.status ?? ""}`);
+
+					// Step 2: Fetch existing itinerary (fetch-then-merge)
+					log.push(`[2/3] GET ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const vamoos_id = existing.vamoos_id as number;
+					const departure_date = existing.departure_date as string;
+					const return_date = existing.return_date as string;
+
+					// pickWritable already extracted existing flight_ids from the flights array
+					const existingFlightIds = Array.isArray(writableExisting.flight_ids) ? writableExisting.flight_ids as number[] : [];
+					const mergedFlightIds = existingFlightIds.includes(flight.id) ? existingFlightIds : [...existingFlightIds, flight.id];
+					log.push(`[2/3] Fetched itinerary: vamoos_id=${vamoos_id} departure=${departure_date} return=${return_date}. Existing flight_ids=[${existingFlightIds.join(", ")}] → merged=[${mergedFlightIds.join(", ")}]`);
+
+					// Step 3: POST itinerary with merged flight_ids
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						departure_date,
+						return_date,
+						flight_ids: mergedFlightIds,
+					};
+
+					const poisSummary = Array.isArray(itinPayload.pois) ? `[${(itinPayload.pois as unknown[]).length} pois]` : itinPayload.pois;
+					log.push(`[3/3] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — payload:\n${JSON.stringify({ ...itinPayload, pois: poisSummary }, null, 2)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[3/3] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 3/3 (attach flight to itinerary) ===\n${log.join("\n\n")}` }] };
+					}
+
+					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return { content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }] };
 				}
 			},
 		);

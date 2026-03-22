@@ -139,6 +139,47 @@ This is handled inline in `pickWritable()`.
 
 ---
 
+## 3c. Flights — GET vs POST Shape
+
+**Confirmed 22 March 2026.** Flights are managed via a separate lookup endpoint and a `flight_ids` writable field — they are NOT updated by including raw flight objects in the itinerary POST.
+
+### How to add a flight to a trip
+
+**Step 1 — Look up the flight:**
+
+```
+GET /flight/lookup/{carrier_code}/{flight_number}/{departure_airport}/{arrival_airport}/{date}
+```
+
+Returns an array of `flight_get` objects. Use the `id` from the first (or chosen) leg.
+
+**Step 2 — POST itinerary with `flight_ids`:**
+
+```json
+{ "flight_ids": [12345, 67890] }
+```
+
+Include the new id merged with any existing flight ids (see below).
+
+### Round-trip: preserving existing flights
+
+The GET response includes a `flights` array of full `flight_get` objects (read-only). The POST write field is `flight_ids` — an array of integer ids. They are different fields.
+
+`pickWritable()` derives `flight_ids` from `existing.flights` automatically:
+
+```
+existing.flights[].id  →  POST body: { flight_ids: [id, id, ...] }
+```
+
+This ensures any existing flights are preserved when making any other itinerary update (e.g. adding a POI or document). Before this fix, every itinerary POST would silently clear all flights.
+
+| GET returns | POST accepts |
+|---|---|
+| `flights: [{ id, carrier_flight_number, departure_at_utc, ... }]` | ✗ (read-only) |
+| _(derived)_ | `flight_ids: [integer, ...]` ✓ |
+
+---
+
 ## 4. S3 Upload Flow
 
 ```
