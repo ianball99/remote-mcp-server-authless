@@ -12,6 +12,7 @@
 ## Investigate
 
 - [ ] **22 Mar 2026 — fetch error / token rate limit on new trip** — Sequence: listed itineraries, then asked chatbot to create a 'new trip' → got a 'fetch error'. Retried → got 'token rate limit exceeded'. Unclear whether root cause is (a) chatbot hitting Anthropic rate limit mid-request, (b) Vamoos API token exhausted, or (c) a transient network/worker error masking the real cause. Reproduce and check Cloudflare Worker logs + chatbot error handling.
+- [ ] **22 Mar 2026 — HTTP 400 when adding POI to trip with existing GPX track location** — `add_poi_and_attach_to_itinerary` failed at step 3/3 with `openapi-validation` errors on `locations[0]`: fields like `id`, `operator_id`, `created_at`, `itinerary_id`, `loc_position`, `on_weather`, `on_maps` rejected as additional properties, and `$source` required but missing. Root cause: existing locations from GET response were spread raw into the update payload, bypassing the `pickWritable` stripping. **Fixed 22 Mar 2026** — same bug was in all three POI/GPX handlers; fixed by calling `pickWritable` once and reading `locations` from the result before appending the new location. Deployed via `claude/fix-itinerary-merge-ZBL1t`. Needs re-test to confirm.
 
 ## Backlog
 
