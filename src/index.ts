@@ -1263,6 +1263,80 @@ export class VamoosMCP extends McpAgent<Env> {
 			},
 		);
 
+		// Add a location to an itinerary
+		// Locations define geographic areas for the trip — any Vamoos POIs whose coordinates
+		// fall within the radius of a location will automatically appear for that trip.
+		// They also appear on the trip map in a separate tab from POIs.
+		this.server.tool(
+			"add_location_to_itinerary",
+			"Add a location to a Vamoos trip. Locations define geographic areas for the trip — any Vamoos POIs within the radius of a location will automatically appear for that trip. Locations also appear on the trip map in a separate tab from POIs. Only the reference_code is needed to identify the trip. Existing locations are preserved.",
+			{
+				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
+				name: z.string().min(1).max(128).describe("Display name for the location (e.g. 'Rome', 'Heathrow Airport')"),
+				latitude: z.string().describe("Latitude (e.g. '41.9028')"),
+				longitude: z.string().describe("Longitude (e.g. '12.4964')"),
+				description: z.string().optional().describe("Optional description shown in the app"),
+				icon_id: z.number().int().optional().describe("Optional icon ID"),
+			},
+			async ({ reference_code, name, latitude, longitude, description, icon_id }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: Fetch existing itinerary (fetch-then-merge)
+					log.push(`[1/2] GET ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const vamoos_id = existing.vamoos_id as number;
+					const departure_date = existing.departure_date as string;
+					const return_date = existing.return_date as string;
+
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
+					const newLocation: Record<string, unknown> = { name, latitude, longitude };
+					if (description !== undefined) newLocation.description = description;
+					if (icon_id !== undefined) newLocation.icon_id = icon_id;
+					const mergedLocations = [...existingLocations, newLocation];
+
+					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing locations=${existingLocations.length} → merged=${mergedLocations.length}`);
+
+					// Step 2: POST itinerary with merged locations
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						departure_date,
+						return_date,
+						locations: mergedLocations,
+					};
+
+					log.push(`[2/2] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[2/2] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 2/2 ===\n${log.join("\n\n")}` }] };
+					}
+
+					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return { content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }] };
+				}
+			},
+		);
+
 		// Upload an AI-generated HTML document directly as an .html file to an itinerary
 		this.server.tool(
 			"upload_created_html_itinerary_document",
