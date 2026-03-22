@@ -439,6 +439,8 @@ This means **every push to the working `claude/` branch deploys immediately** �
 
 This means **every push to the working `claude/` branch also deploys to Netlify immediately**, same as the Cloudflare Worker.
 
+> **Important:** Each branch gets its own unique deploy URL — it is **not** the production URL. To test a branch deploy, find the branch-specific URL in the Netlify dashboard (Deploys tab → click the deploy → "Open deploy" button). The URL format is `https://<branch-slug>--<site-name>.netlify.app`. The production URL only updates when `main` is pushed.
+
 **Build config** (`netlify.toml` in repo root):
 ```toml
 [build]
