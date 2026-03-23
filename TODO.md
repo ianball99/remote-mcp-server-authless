@@ -16,6 +16,7 @@
 
 ## Backlog
 
+- [ ] **Investigate why `field3` (Name/Location) is absent from GET itinerary response** — The General tab UI field "Name / Location" maps to `field3` in the POST payload, but `field3` does not appear in GET itinerary responses (even when set). Possible causes: (a) field is write-only or not returned by this endpoint, (b) field is only exposed on a different GET endpoint, (c) value is stored elsewhere under a different key. Check raw GET response and Vamoos API spec for `field3` behaviour.
 - [ ] **Clarify locations tab vs general tab location field** — Two distinct concepts are easily confused: (1) **Locations tab** (`locations[]` array in API) — structured entries with lat/long, name, type etc., displayed in the Vamoos app locations tab; (2) **General tab location text** — a plain-text field on the itinerary header, believed to be `field2` or `field3` in the API. Need to confirm exact API field name(s) for the general tab location/name text field and document clearly in VAMOOS_FIELD_NOTES.md so tools don't conflate the two.
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify it uses fetch-then-merge correctly (pois array must be merged, not overwritten)
 - [ ] Revisit `upload_poi` tool — check it works correctly with fetch-then-merge pattern
