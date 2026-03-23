@@ -16,6 +16,7 @@
 
 ## Backlog
 
+- [ ] **Clarify locations tab vs general tab location field** — Two distinct concepts are easily confused: (1) **Locations tab** (`locations[]` array in API) — structured entries with lat/long, name, type etc., displayed in the Vamoos app locations tab; (2) **General tab location text** — a plain-text field on the itinerary header, believed to be `field2` or `field3` in the API. Need to confirm exact API field name(s) for the general tab location/name text field and document clearly in VAMOOS_FIELD_NOTES.md so tools don't conflate the two.
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify it uses fetch-then-merge correctly (pois array must be merged, not overwritten)
 - [ ] Revisit `upload_poi` tool — check it works correctly with fetch-then-merge pattern
 - [ ] Check GPX track and POI visibility settings — confirm `is_default_on`, `poi_range`, and `type` values are correct for display in Vamoos app. Check with Alisdair.
