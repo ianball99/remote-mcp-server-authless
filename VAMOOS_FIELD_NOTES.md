@@ -182,6 +182,24 @@ This ensures any existing flights are preserved when making any other itinerary 
 
 ---
 
+## 3d. General Tab — UI Field to API Field Mapping
+
+The following mappings were identified from the Vamoos web UI "General" tab for a trip. These correspond to writable fields on the `POST /itinerary/{operator}/{ref}` endpoint.
+
+| UI label | API field |
+|---|---|
+| User Id | `operator_code` |
+| Passcode | `reference_code` |
+| Destination / Event title | `field1` |
+| Name / Location | `field3` |
+| Start date | `departure_date` |
+| End date | `return_date` |
+| Client ref | `client_reference` |
+
+**Unknown mappings:** `field2` and `field4` — purpose not yet confirmed. Likely additional free-text fields visible in the UI under other labels.
+
+---
+
 ## 4. S3 Upload Flow
 
 ```
