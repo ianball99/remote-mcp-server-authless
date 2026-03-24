@@ -9,6 +9,12 @@
 
 - [ ] (add items here)
 
+## Priority
+
+- [ ] **Priority 1 — UI Design** — Design and implement UI improvements for the chatbot interface
+- [ ] **Priority 2 — Email ID for person** — Add ability to capture / store / use a person's email ID within the system
+- [ ] **Priority 3 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
+
 ## Investigate
 
 - [ ] **22 Mar 2026 — fetch error / token rate limit on new trip** — Sequence: listed itineraries, then asked chatbot to create a 'new trip' → got a 'fetch error'. Retried → got 'token rate limit exceeded'. Unclear whether root cause is (a) chatbot hitting Anthropic rate limit mid-request, (b) Vamoos API token exhausted, or (c) a transient network/worker error masking the real cause. Reproduce and check Cloudflare Worker logs + chatbot error handling.
