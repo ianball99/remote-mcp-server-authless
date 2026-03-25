@@ -182,6 +182,45 @@ This ensures any existing flights are preserved when making any other itinerary 
 
 ---
 
+## 3e. Travellers — GET vs POST Shape
+
+**Confirmed 25 March 2026.** The GET response for `travellers[]` includes read-only server fields that must be stripped before re-posting.
+
+| GET includes (read-only) | POST accepts |
+|---|---|
+| `id`, `tag`, `itinerary_id` | ✗ |
+| `created_at`, `updated_at` | ✗ |
+| `name` | ✓ |
+| `email` | ✓ |
+| `details` (object, default `{}`) | ✓ |
+| `is_active` (boolean, default `true`) | ✓ |
+
+### Confirmed GET shape (single traveller entry)
+
+```json
+{
+    "id": 17357073,
+    "tag": 17357073,
+    "itinerary_id": 18000541,
+    "name": "ian ball",
+    "details": {},
+    "email": "id@ianball.org",
+    "is_active": true,
+    "created_at": "2026-03-25T17:17:52.000Z",
+    "updated_at": "2026-03-25T17:17:52.000Z"
+}
+```
+
+### Round-trip mapping
+
+Strip to `{ name, email, details, is_active }` before re-posting. For new travellers, only `name` and `email` are required — the API defaults `details` to `{}` and `is_active` to `true`.
+
+Handled inline in `pickWritable()`. `travellers` is included in `WRITABLE_ITINERARY_FIELDS`.
+
+The `add_person_to_itinerary` tool deduplicates by email (case-insensitive) before appending.
+
+---
+
 ## 3d. General Tab — UI Field to API Field Mapping
 
 The following mappings were identified from the Vamoos web UI "General" tab for a trip. These correspond to writable fields on the `POST /itinerary/{operator}/{ref}` endpoint.
@@ -249,14 +288,14 @@ From `itinerary_read` — these are present in GET but must not be included in P
 - `routing`, `preview_link`, `preview_link_id`, `preview_maps_link`
 - `deactivated_at`, `deactivated_by`, `is_wiped`
 - `is_listed`, `is_public`, `requested_listing_status`
-- `travellers` (read via GET, written via `travellers` array in POST)
+- `travellers[].id`, `travellers[].tag`, `travellers[].itinerary_id`, `travellers[].created_at`, `travellers[].updated_at` — strip per-entry read-only fields before re-posting (see §3e)
 - `lead_traveller`
 
 ---
 
 ## 7. Writable Fields (Safe to Include in POST)
 
-`vamoos_id` · `departure_date` · `return_date` · `timezone` · `start_time` · `client_reference` · `field1` · `field2` · `field3` · `field4` · `background` · `pois` · `documents` · `locations` · `notifications` · `storyboard` · `widgets` · `meta` · `logo` · `branding_profile_id` · `is_active`
+`vamoos_id` · `departure_date` · `return_date` · `timezone` · `start_time` · `client_reference` · `field1` · `field2` · `field3` · `field4` · `background` · `pois` · `documents` · `locations` · `notifications` · `travellers` · `storyboard` · `widgets` · `meta` · `logo` · `branding_profile_id` · `is_active`
 
 ---
 

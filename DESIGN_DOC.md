@@ -92,6 +92,7 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 | `create_and_add_poi` | Look up or create a Vamoos global POI, then attach to trip; also auto-adds a location |
 | `add_flight_to_itinerary` | Look up flight via carrier/number/airports/date, attach via `flight_ids` |
 | `add_location_to_itinerary` | Add a standalone location (no POI) — only needed when no POI is being added |
+| `add_person_to_itinerary` | Add a traveller (name + email) to an itinerary; preserves existing travellers; deduplicates by email |
 | `upload_document` | Upload user-supplied file (base64) or HTML→PDF conversion |
 | `legacy_upload_created_itinerary_document` | **Deprecated** — markdown→PDF via Puppeteer, kept for reference |
 
@@ -202,6 +203,7 @@ Several fields are returned by GET as richer "read" objects but POST only accept
 | `documents.travel` / `.destination` | same as background, plus `documents.all` computed array | `{ file_url, name }` | `getExistingDocuments()` strips to writable shape, excludes `.all` (fixed 20 March 2026) |
 | `locations[]` | `id`, `itinerary_id`, `country`, `country_iso`, `timezone`, `created_at`, `updated_at` | `{ name, latitude, longitude, description?, icon_id? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
 | `notifications[]` | `id`, `itinerary_id`, `created_at`, `updated_at` | `{ type, content?, url?, is_active? }` | inline strip in `pickWritable()` (fixed 20 March 2026) |
+| `travellers[]` | `id`, `tag`, `itinerary_id`, `created_at`, `updated_at` | `{ name, email, details?, is_active? }` | inline strip in `pickWritable()` (confirmed and added 25 March 2026) |
 
 **Note on HTTP 408 (20 March 2026):** A 408 Request Timeout was observed on a date-change update for trip ibtest2003-4. The same operation succeeded immediately before and after the `locations`/`notifications` sanitisation fixes were applied, confirming the 408 was a transient network/server timeout, not a code bug. The sanitisation fixes are still correct and necessary for trips that have locations or notifications set, as those would cause 422 validation errors.
 
@@ -308,7 +310,9 @@ All attempts failed. The API returned errors.
 - ✅ `add_poi_and_attach_to_itinerary` tool — create named map pin (`type: "poi"`) and attach to trip (20 March 2026)
 - ✅ `add_flight_to_itinerary` tool — look up flight via `/flight/lookup`, attach via `flight_ids`; `pickWritable()` derives `flight_ids` from existing `flights[]` so existing flights are preserved (22 March 2026)
 - ✅ `add_location_to_itinerary` tool — add a standalone location without a POI; POI tools already auto-add a location so this is only needed when there is no POI (22 March 2026)
-- ✅ Chatbot updated with all new tools and system prompt guidance (22 March 2026)
+- ✅ `add_person_to_itinerary` tool — add a traveller by name and email; fetch-then-merge preserves existing travellers; deduplicates by email (25 March 2026)
+- ✅ `travellers[]` round-trip sanitisation in `pickWritable()` — strips read-only fields (`id`, `tag`, `itinerary_id`, `created_at`, `updated_at`) (25 March 2026)
+- ✅ Chatbot updated with all new tools and system prompt guidance (22 March 2026, updated 25 March 2026)
 
 ### Under Investigation / Next Steps
 - 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
@@ -487,4 +491,4 @@ This means **every push to the working `claude/` branch also deploys to Netlify 
 
 ---
 
-*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026*
+*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026 — travellers tool added 25 March 2026*

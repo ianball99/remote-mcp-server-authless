@@ -4,6 +4,20 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 25 March 2026
+
+### `add_person_to_itinerary` tool
+- Investigated travellers API shape: confirmed GET returns `id`, `tag`, `itinerary_id`, `created_at`, `updated_at` as read-only alongside writable `name`, `email`, `details`, `is_active`.
+- Added `"travellers"` to `WRITABLE_ITINERARY_FIELDS`.
+- Added `travellers` branch to `pickWritable()` — strips read-only per-entry fields, preserves `name`, `email`, `details`, `is_active`.
+- Registered `add_person_to_itinerary` MCP tool: 2-step fetch-then-merge, deduplicates by email (case-insensitive), appends `{ name, email }` for new travellers.
+- Chatbot (`claude-code-chatbot-v1`) updated: tool definition added to `TOOLS` array, `PERSON:` bullet added to system prompt.
+- Confirmed working end-to-end.
+- All docs updated: `DESIGN_DOC.md`, `VAMOOS_FIELD_NOTES.md` (new §3e), `TODO.md`, `PROGRESS_LOG.md`.
+- Investigated passcode special characters: `ib2303-1` fails to load — added to Investigate in TODO.
+
+---
+
 ## 22 March 2026
 
 ### `add_flight_to_itinerary` tool

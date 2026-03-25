@@ -11,10 +11,9 @@
 
 ## Priority
 
-- [ ] **Priority 1 — Add person to itinerary** — Build `add_person_to_itinerary` tool to allow Claude to attach a person/passenger to an itinerary via the Vamoos API
-- [ ] **Priority 2 — UI Design** — Design and implement UI improvements for the chatbot interface
-- [ ] **Priority 3 — Email ID for person** — Add ability to capture / store / use a person's email ID within the system
-- [ ] **Priority 4 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
+- [ ] **Priority 1 — UI Design** — Design and implement UI improvements for the chatbot interface
+- [ ] **Priority 2 — Email ID for person** — Add ability to capture / store / use a person's email ID within the system
+- [ ] **Priority 3 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
 
 ## Investigate
 
@@ -45,3 +44,4 @@
 - [x] Fix background field round-trip mapping (GET returns library_node_read with file.s3_url; POST expects file_url_upload_object with file_url)
 - [x] Create VAMOOS_API_SPEC.txt and VAMOOS_FIELD_NOTES.md reference docs
 - [x] Confirm document upload working end-to-end (19 March 2026)
+- [x] Build `add_person_to_itinerary` tool — fetch-then-merge, deduplicates by email, confirmed working (25 March 2026)
