@@ -320,6 +320,9 @@ All attempts failed. The API returned errors.
   - TripPage (shared for new and existing trips): split-pane with Details tab (`get_itinerary`) + Summary tab (HTML itinerary iframe) + ChatPanel at bottom
   - Details tab auto-refreshes after mutating tool calls; Summary tab populated from `onHtmlGenerated` callback
 - ✅ **End-to-end confirmed on device** — new trip created via form, person added, push notification received on phone, trip appeared in Vamoos mobile app (28 March 2026)
+- ✅ **Trip list parsing fixed** — `HomePage.jsx` extracts title from `field1` and array from `items` (correct Vamoos response keys) (28 March 2026)
+- ✅ **Claude-formatted trip details** — Details tab calls `netlify/functions/format-trip.js` which uses Claude Haiku to convert raw `get_itinerary` JSON into clean readable plain text; future-proof — any new Vamoos fields appear automatically (28 March 2026)
+- ✅ **Auto background image on create** — `netlify/functions/generate-trip-image.js` uses Claude Haiku to extract destination keywords, queries Pixabay for a travel photo, and uploads it via `upload_background_image` immediately after trip creation; fixes mobile download failure for trips without a background (28 March 2026)
 
 ### Under Investigation / Next Steps
 - 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
@@ -331,6 +334,7 @@ All attempts failed. The API returned errors.
 - No authentication on the MCP server itself (by design — "authless")
 - `legacy_upload_created_itinerary_document` left in codebase but should eventually be removed
 - The markdown→HTML converter (`markdownToHtml()`) and `wrapHtmlIfNeeded()` are still present but are now only used by the legacy/PDF path
+- `create_itinerary` field options not fully documented — may support person/traveller fields at create time, which could collapse the two-step create + `add_person_to_itinerary` flow into one call (TODO)
 
 ---
 
@@ -345,6 +349,15 @@ All attempts failed. The API returned errors.
 | `.github/workflows/deploy.yml` | CI/CD: deploy to Cloudflare on push |
 | `test.gpx` | Minimal 3-point GPX file for API testing |
 | `worker-configuration.d.ts` | TypeScript types for `Env` (secrets + bindings) |
+
+**Netlify Functions (`claude-code-chatbot-v1`):**
+
+| File | Purpose |
+|------|---------|
+| `netlify/functions/chat.js` | Main agentic loop — calls Claude API with tools, handles MCP tool proxy calls |
+| `netlify/functions/mcp-tool.js` | Proxy — forwards MCP tool calls to the Cloudflare Worker |
+| `netlify/functions/format-trip.js` | Claude Haiku formats raw `get_itinerary` JSON into readable plain text for the Details tab |
+| `netlify/functions/generate-trip-image.js` | Claude Haiku extracts keywords from trip title; Pixabay returns a travel photo as base64 for background upload |
 
 ---
 
@@ -361,6 +374,7 @@ Headers always needed:
 Create/update itinerary (upsert):
   POST /itinerary/{operator}/{reference_code}
   Body: { departure_date, return_date, vamoos_id (for updates), field1, field3, background, documents, pois }
+  Response (create): includes vamoos_id (integer) — required for subsequent upload_background_image calls
 
 Get itinerary:
   GET /itinerary/{operator}/{reference_code}
@@ -430,6 +444,10 @@ This means **every push to the working `claude/` branch deploys immediately** �
 - `CLOUDFLARE_ACCOUNT_ID`
 - `VAMOOS_API_TOKEN`
 
+**Required Netlify environment variables** (`claude-code-chatbot-v1` → Site configuration → Environment variables):
+- `ANTHROPIC_API_KEY` — used by `chat.js`, `format-trip.js`, `generate-trip-image.js`
+- `PIXABAY_API_KEY` — used by `generate-trip-image.js` to fetch travel background images
+
 **How to review a deploy:**
 - Go to GitHub → `ianball99/remote-mcp-server-authless` → Actions tab
 - Each push shows a workflow run; click it to see logs
@@ -498,4 +516,4 @@ This means **every push to the working `claude/` branch also deploys to Netlify 
 
 ---
 
-*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026 — travellers tool added 25 March 2026 — v0 UI integration and end-to-end mobile confirmation added 28 March 2026*
+*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026 — travellers tool added 25 March 2026 — v0 UI integration and end-to-end mobile confirmation added 28 March 2026 — UI fixes, Claude-formatted details, auto Pixabay background on create added 28 March 2026*

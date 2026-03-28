@@ -45,6 +45,32 @@ Rebuilt the chatbot UI from a single-page inline-CSS React app into a full multi
 **Todo added:**
 - Investigate `create_itinerary` field options — check if person or other fields can be included in the initial create call to simplify the flow
 
+### UI fixes and auto-background image — `claude-code-chatbot-v1` (session 2)
+
+**Trip list parsing fix:**
+- Home page was showing raw JSON instead of a trip list
+- Two bugs fixed: Vamoos uses `field1` (not `title`) for the trip name, and `items` (not `results`) for the array key in the `list_itineraries` response
+
+**Claude-formatted trip details:**
+- Details tab was showing raw JSON from `get_itinerary`
+- New `netlify/functions/format-trip.js` — lightweight single call to `claude-haiku-4-5-20251001` (no tools, max 1024 tokens)
+- System prompt instructs Claude to produce clean plain-text with ALL CAPS section headings, skipping internal fields, including all meaningful content
+- Future-proof: any new Vamoos fields will automatically appear without code changes
+- TripPage updated to call `format-trip` after `get_itinerary` on load and after every mutating tool call
+
+**Auto background image on trip creation:**
+- Confirmed that trips without a background image fail to download to the mobile app
+- New `netlify/functions/generate-trip-image.js`:
+  1. Calls Claude Haiku to extract 2–3 destination keywords from the trip title (e.g. "Morocco Adventure" → "morocco desert landscape")
+  2. Queries Pixabay API (`PIXABAY_API_KEY` env var) for a horizontal travel photo matching those keywords
+  3. Downloads the image and returns as base64 + content type
+- `CreateTripPage.jsx` updated:
+  - Parses `vamoos_id` from the `create_itinerary` response (required by `upload_background_image`)
+  - Runs `add_person_to_itinerary` and image generation in parallel (`Promise.allSettled`)
+  - Calls `upload_background_image` MCP tool with the Pixabay image
+  - Background upload is non-fatal — trip creation still succeeds if the image step fails
+  - Button shows step-by-step progress: "Creating trip…" → "Adding details…" → "Uploading background…" → "Opening trip…"
+
 ---
 
 ## 25 March 2026
