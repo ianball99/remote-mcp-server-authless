@@ -11,8 +11,8 @@
 
 ## Priority
 
-- [ ] **Priority 1 — UI Design** — Design and implement UI improvements for the chatbot interface
-- [ ] **Priority 2 — Email ID for person** — Add ability to capture / store / use a person's email ID within the system
+- [ ] **Priority 1 — Investigate `create_itinerary` field options** — Check whether person/traveller fields can be passed at creation time to collapse the two-step `create_itinerary` + `add_person_to_itinerary` flow into one call
+- [ ] **Priority 2 — Person name display** — Review how person name displays in Vamoos app; consider using the user's email address rather than the hardcoded string `"mcp chat creator"`
 - [ ] **Priority 3 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
 
 ## Investigate
