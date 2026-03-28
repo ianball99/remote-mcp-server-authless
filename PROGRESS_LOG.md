@@ -4,6 +4,49 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 28 March 2026
+
+### v0 UI integration — `claude-code-chatbot-v1`
+
+Rebuilt the chatbot UI from a single-page inline-CSS React app into a full multi-page application using the v0-chatbot-app-v2 design (dark gray + orange Tailwind CSS theme, shadcn-style layout).
+
+**Architecture changes:**
+- Added Tailwind CSS 4, React Router, lucide-react to Vite/React app
+- Extracted the full agentic loop from monolithic `App.jsx` into reusable `ChatPanel` component, re-skinned in v0 orange/dark-gray theme
+- New pages: Login (captures email → localStorage), Verify (skip-through), Home, TripPage (view/update), CreateTripPage (new trip form)
+
+**Home page — live trip list:**
+- Fetches `list_itineraries` via mcp-tool proxy on load
+- Displays all trips with title and start date
+- "Add new trip" button navigates to CreateTripPage
+
+**CreateTripPage — new trip form:**
+- Captures title, start date (flexible parsing: d/m/yy, YYYY-MM-DD, etc.), end date
+- Auto-generates reference code as `trip` + `YYYYMMDDHHmmss` — internal, not shown to user
+- Two sequential MCP calls on submit (both critical):
+  1. `create_itinerary` — creates the trip in Vamoos
+  2. `add_person_to_itinerary` — adds `{ name: "mcp chat creator", email: <login email> }` to the trip
+- Navigates to TripPage on success, passing title + start date via router state for immediate heading
+
+**TripPage (shared for view and update):**
+- Split-pane layout with draggable divider
+- Top pane: two tabs — Details (shows `get_itinerary` result) and Summary (shows draft HTML itinerary document in iframe)
+- Bottom pane: ChatPanel with full agentic loop
+- Details tab auto-refreshes after any mutating tool call (add flight, person, location, etc.)
+- Summary tab populated when `upload_created_html_itinerary_document` fires (HTML captured before PDF conversion)
+- Heading shows title + start date immediately (from router state) without waiting for `get_itinerary`
+
+**End-to-end test — confirmed working ✅**
+- New trip created successfully via CreateTripPage form
+- `add_person_to_itinerary` call succeeded — person with login email added as "mcp chat creator"
+- **IB received a push notification on phone** immediately after trip creation
+- **Trip appeared in the Vamoos mobile app** — confirmed visible and correct
+
+**Todo added:**
+- Investigate `create_itinerary` field options — check if person or other fields can be included in the initial create call to simplify the flow
+
+---
+
 ## 25 March 2026
 
 ### `add_person_to_itinerary` tool

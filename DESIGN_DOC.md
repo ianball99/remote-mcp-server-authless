@@ -293,7 +293,7 @@ All attempts failed. The API returned errors.
 
 ---
 
-## 7. Current State (22 March 2026)
+## 7. Current State (28 March 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -313,6 +313,13 @@ All attempts failed. The API returned errors.
 - ✅ `add_person_to_itinerary` tool — add a traveller by name and email; fetch-then-merge preserves existing travellers; deduplicates by email (25 March 2026)
 - ✅ `travellers[]` round-trip sanitisation in `pickWritable()` — strips read-only fields (`id`, `tag`, `itinerary_id`, `created_at`, `updated_at`) (25 March 2026)
 - ✅ Chatbot updated with all new tools and system prompt guidance (22 March 2026, updated 25 March 2026)
+- ✅ **Chatbot UI rebuilt with v0 design** — multi-page Vite/React app with Tailwind CSS 4, React Router, orange/dark-gray theme (28 March 2026):
+  - Login page captures user email (stored in localStorage)
+  - Home page fetches and lists all trips live via `list_itineraries`
+  - CreateTripPage: form captures title + dates, auto-generates ref code (`trip` + datetime stamp), calls `create_itinerary` then `add_person_to_itinerary` (login email, name "mcp chat creator") — both critical
+  - TripPage (shared for new and existing trips): split-pane with Details tab (`get_itinerary`) + Summary tab (HTML itinerary iframe) + ChatPanel at bottom
+  - Details tab auto-refreshes after mutating tool calls; Summary tab populated from `onHtmlGenerated` callback
+- ✅ **End-to-end confirmed on device** — new trip created via form, person added, push notification received on phone, trip appeared in Vamoos mobile app (28 March 2026)
 
 ### Under Investigation / Next Steps
 - 🔍 `upload_created_html_itinerary_document` needs a retrieve-edit-replace flow (see TODO)
@@ -491,4 +498,4 @@ This means **every push to the working `claude/` branch also deploys to Netlify 
 
 ---
 
-*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026 — travellers tool added 25 March 2026*
+*Document generated 18 March 2026 — deployment section added 20 March 2026 — tools and current state updated 22 March 2026 — travellers tool added 25 March 2026 — v0 UI integration and end-to-end mobile confirmation added 28 March 2026*
