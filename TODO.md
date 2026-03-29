@@ -14,6 +14,8 @@
 - [ ] **Priority 1 — Investigate `create_itinerary` field options** — Check whether person/traveller fields can be passed at creation time to collapse the two-step `create_itinerary` + `add_person_to_itinerary` flow into one call
 - [ ] **Priority 2 — Person name display** — Review how person name displays in Vamoos app; consider using the user's email address rather than the hardcoded string `"mcp chat creator"`
 - [ ] **Priority 3 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
+- [ ] **Priority 4 - When retrieve trips filter them and only show trips with a person/traveller with email address matching the one user has input in login screen this session
+- [ ] **Change name of person to be copy of email address when add person
 
 ## Investigate
 
