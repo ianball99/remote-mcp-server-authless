@@ -14,6 +14,7 @@
 - [ ] **Priority 1 — Investigate `create_itinerary` field options** — Check whether person/traveller fields can be passed at creation time to collapse the two-step `create_itinerary` + `add_person_to_itinerary` flow into one call
 - [ ] **Priority 2 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
 - [ ] **Priority 3 — Implement per-user trip filtering via Netlify Blobs** — HomePage should only show trips belonging to the logged-in user. Decision taken to use Netlify Blobs as a persistent email→trips index. See DESIGN_DOC.md section 5.12 for full options analysis and decision rationale.
+- [ ] **set transparent off for html itinerary summary
 
 ## Investigate
 
