@@ -10,12 +10,8 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"migrations": [
 		{
-			"new_sqlite_classes": ["MyMCP"],
+			"new_sqlite_classes": ["VamoosMCP"],
 			"tag": "v1"
-		},
-		{
-			"renamed_classes": [{ "from": "MyMCP", "to": "VamoosMCP" }],
-			"tag": "v2"
 		}
 	],
 	"durable_objects": {
