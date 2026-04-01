@@ -7,14 +7,12 @@
 
 ## In Progress
 
-- [ ] (add items here)
+_Nothing currently in progress._
 
 ## Priority
 
 - [ ] **Priority 1 — Investigate `create_itinerary` field options** — Check whether person/traveller fields can be passed at creation time to collapse the two-step `create_itinerary` + `add_person_to_itinerary` flow into one call
 - [ ] **Priority 2 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
-- [ ] **Priority 3 — Implement per-user trip filtering via Netlify Blobs** — HomePage should only show trips belonging to the logged-in user. Decision taken to use Netlify Blobs as a persistent email→trips index. See DESIGN_DOC.md section 5.12 for full options analysis and decision rationale.
-- [ ] **set transparent off for html itinerary summary
 
 ## Investigate
 
@@ -44,3 +42,6 @@
 - [x] Build `add_flight_to_itinerary` and `add_location_to_itinerary` tools (22 March 2026)
 - [x] **Person name uses email address** — `CreateTripPage` now passes `name: email` instead of hardcoded `"mcp chat creator"` (29 March 2026)
 - [x] **Summary tab live preview + Save + load on page load** — HTML doc shows immediately when chatbot uploads; Save button persists with standard name `Trip Summary-{title}`; page load scans `documents.all` and fetches via `fetch-document` proxy using `file.https_url` (29 March 2026)
+- [x] **Per-user trip filtering via Netlify Blobs** — `trip-index.js` function reads/writes email→trips index; `HomePage` reads from it instead of calling `list_itineraries`; `CreateTripPage` and `TripPage` write to it on trip create and person add (29 March 2026)
+- [x] **HTML itinerary transparent background + white text + Roboto font** — `SYSTEM_PROMPT.md` updated with styling guidance (1 April 2026)
+- [x] **Email OTP verification per browser** — 6-digit code via Resend (`noreply@send.infoalchemy.co.uk`), 5-min expiry, 7-day browser verification window. `send-otp.js`, `verify-otp.js`, `check-verification.js` functions added. `AuthGuard` wraps all protected routes. Verified sending domain `send.infoalchemy.co.uk` added to Resend (1 April 2026)
