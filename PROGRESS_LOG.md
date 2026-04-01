@@ -4,6 +4,31 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 1 April 2026 (session 2)
+
+### Email OTP verification per browser — `claude-code-chatbot-v1`
+
+Replaced the fake skip-through OTP stub in LoginPage with real server-side email verification. The full flow: user enters email → 6-digit code sent by email → user enters code → browser+email marked as verified for 7 days.
+
+**Three new Netlify functions:**
+- `send-otp.js` — generates a 6-digit code, stores in Netlify Blobs `otp-store` with 5-minute expiry, sends via Resend API. Rate-limited: rejects with 429 if a valid code already exists for that email.
+- `verify-otp.js` — validates submitted code server-side, deletes it on success, writes `{ verifiedAt }` to Netlify Blobs `browser-verifications` keyed by `email:browserId`.
+- `check-verification.js` — looks up the `browser-verifications` record for a given email+browserId pair; returns `{ verified: true }` if within 7-day window.
+
+**`AuthGuard` component (`App.jsx`):** Wraps all protected routes (`/home`, `/trip/:refCode`, `/create-trip`). Calls `check-verification` on every route load; redirects to `/` if not verified or expired.
+
+**Browser UUID:** `crypto.randomUUID()` generated on first visit, stored in localStorage as `vamoos_browser_id`. Each new browser or cleared storage gets a fresh UUID.
+
+**Resend API:** Initially used `onboarding@resend.dev` — discovered this sender only delivers to the Resend account owner's email. Fixed by verifying domain `send.infoalchemy.co.uk`; OTP emails now sent from `noreply@send.infoalchemy.co.uk`.
+
+**Bug fixed — mount-time redirect bypass:** Initial implementation included a `useEffect` on LoginPage mount that auto-redirected to `/home` if a verified email was still in localStorage. After sign-out this fired before localStorage was fully cleared, bypassing the email entry step. Fixed by removing the mount-time check. Verification is now only checked on email submit — the email field is always shown after sign-out. If the entered email is already verified for that browser, the OTP is skipped and the user goes straight to `/home`.
+
+**Bug fixed — 429 dead-end:** Going back to step 1 while a valid code existed then hitting Next returned 429, leaving the user stuck. Fixed by treating 429 as a soft signal on the frontend — advances to step 2 so the user can enter the code they already have.
+
+**README updated to v2.3:** Added Design Decisions section documenting all key choices and reasoning.
+
+---
+
 ## 1 April 2026
 
 ### HTML itinerary styling — `SYSTEM_PROMPT.md`

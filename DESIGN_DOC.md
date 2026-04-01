@@ -189,6 +189,30 @@ body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <fie
 
 **Known limitation:** Trips created or people added outside this app won't appear until Option A is implemented.
 
+### 5.13 Email OTP Verification per Browser (1 April 2026)
+
+**Problem:** The chatbot had no real authentication — LoginPage accepted any verification code and stored the email in localStorage with no server-side validation. Any user could access any email's trip data by typing it in.
+
+**Requirement:** Verify ownership of an email address each time a new browser is used. 6-digit OTP sent by email, valid 5 minutes. Verification persists for 7 days per browser, then re-verification required.
+
+**Key decisions:**
+
+**Browser identity via localStorage UUID.** `crypto.randomUUID()` stored as `vamoos_browser_id` in localStorage. Cookies considered but localStorage is simpler for a Netlify SPA — no CSRF or SameSite complexity. Clearing storage or using a new browser generates a fresh UUID, which is the intended behaviour.
+
+**Netlify Blobs for OTP and verification storage.** Two new stores added alongside the existing `trip-index` store — zero additional infrastructure:
+- `otp-store` — keyed by `encodeURIComponent(email)`, value `{ code, expiresAt }` (5-min TTL)
+- `browser-verifications` — keyed by `encodeURIComponent(email):encodeURIComponent(browserId)`, value `{ verifiedAt }`
+
+Netlify Blobs has no native TTL; expiry is enforced at read time in application code.
+
+**Resend for email delivery.** Single REST API call, one env var (`RESEND_API_KEY`). Initially used `onboarding@resend.dev` — this sender only delivers to the Resend account owner's email. Fixed by verifying domain `send.infoalchemy.co.uk`; from address is `noreply@send.infoalchemy.co.uk`. Free tier (3,000/month) is sufficient.
+
+**Rate-limiting on OTP send.** `send-otp.js` rejects with 429 if a valid unexpired code already exists for that email. Frontend treats 429 as a soft signal — advances to the code-entry step rather than showing an error, since the user already has a valid code in their inbox.
+
+**Verification checked on email submit only (not on page mount).** Initial implementation included a `useEffect` on LoginPage mount that auto-redirected to `/home` if email + browserId were in localStorage and still verified. This caused a bypass bug: after sign-out, the useEffect fired before localStorage was fully cleared and redirected straight to `/home`, skipping the email entry step. Fixed by removing the mount-time check entirely. Verification is now only checked when the user submits their email — the email field is always shown after sign-out.
+
+**Three new Netlify functions:** `send-otp.js`, `verify-otp.js`, `check-verification.js`. `AuthGuard` component in `App.jsx` wraps all protected routes (`/home`, `/trip/:refCode`, `/create-trip`) and calls `check-verification` on every route load.
+
 ---
 
 ## 6. Blind Alleys and Mistakes to Avoid
@@ -239,10 +263,14 @@ Fixed to `master` + `claude/**`.
 - ✅ Person name set to user's email address (not hardcoded string)
 - ✅ End-to-end confirmed on device — push notification received, trip in Vamoos app
 - ✅ Generated HTML itinerary documents styled with Roboto font, white text on dark backgrounds, transparent body (Vamoos background image shows through)
+- ✅ Email OTP verification per browser (Resend, 6-digit code, 5-min expiry, `noreply@send.infoalchemy.co.uk`)
+- ✅ Browser verification persists for 7 days (Netlify Blobs `browser-verifications` store)
+- ✅ `AuthGuard` wraps all protected routes — redirects to `/` if not verified or expired
+- ✅ Login page checks browser verification on email submit — skips OTP if already verified within 7 days
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
-- No auth on MCP server (by design)
+- No auth on MCP server (by design — the MCP server is an internal bridge, not user-facing)
 - Per-user trip filtering uses Netlify Blobs (pending Vamoos API filter investigation)
 
 ---
@@ -267,6 +295,9 @@ Fixed to `master` + `claude/**`.
 | `netlify/functions/generate-trip-image.js` | Claude Haiku + Pixabay: background image on trip create |
 | `netlify/functions/fetch-document.js` | Server-side proxy to fetch S3 HTML docs (avoids CORS) |
 | `netlify/functions/trip-index.js` | Netlify Blobs: per-user trip index keyed by email |
+| `netlify/functions/send-otp.js` | Generate + email 6-digit OTP via Resend; rate-limited per email |
+| `netlify/functions/verify-otp.js` | Validate OTP server-side; write browser verification record to Blobs |
+| `netlify/functions/check-verification.js` | Check `browser-verifications` blob — returns verified if within 7 days |
 
 ---
 
@@ -317,4 +348,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 1 April 2026*
+*Document generated 18 March 2026 — updated through 1 April 2026 (session 2)*
