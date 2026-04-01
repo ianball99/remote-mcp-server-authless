@@ -75,9 +75,9 @@ Example structure (expand with actual content):
   <title>Italy Trip - April 2025</title>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Roboto', Arial, sans-serif; font-size: 13px; line-height: 1.6; margin: 40px; }
+    body { font-family: 'Roboto', Arial, sans-serif; font-size: 13px; line-height: 1.6; margin: 40px; background: #2a2a2a; color: #fff; }
     h1 { font-size: 20px; margin-bottom: 8px; }
-    h2 { font-size: 15px; margin-top: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    h2 { font-size: 15px; margin-top: 24px; border-bottom: 1px solid #555; padding-bottom: 4px; }
     h3 { font-size: 13px; margin-top: 12px; }
     ul { margin: 0 0 8px; padding-left: 20px; }
     li { margin-bottom: 3px; }
