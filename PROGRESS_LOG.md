@@ -4,6 +4,57 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 1 April 2026
+
+### HTML itinerary styling — `SYSTEM_PROMPT.md`
+
+Three successive styling improvements to the instructions Claude follows when generating HTML itinerary documents:
+
+1. **Roboto font** — added `<link>` to Google Fonts (Roboto 400/700) so generated documents use a clean sans-serif typeface instead of the browser default.
+2. **White text on dark backgrounds** — updated colour guidance so text sections on dark-coloured backgrounds use white text. The Vamoos app displays documents overlaid on the trip background image, so dark text on a semi-transparent background can be hard to read.
+3. **Transparent document background** — set `background: transparent` on the outer body/container so the Vamoos app background image shows through behind the document, rather than a solid white or coloured fill blocking it.
+
+All three changes are prompt-only (`SYSTEM_PROMPT.md`); no server code changes.
+
+---
+
+## 31 March 2026
+
+### Durable Objects migration fix — `wrangler.jsonc`
+
+Fixed a deploy error (Cloudflare error 10074) caused by a rename migration referencing `MyMCP`, a class name that was never deployed. The `wrangler.jsonc` had two migrations:
+- v1: `new_sqlite_classes` for `VamoosMCP`
+- v2: rename `MyMCP → VamoosMCP`
+
+The v2 migration was left over from an earlier draft and was invalid because `MyMCP` never existed as a live class. Collapsed to a single `new_sqlite_classes` entry at tag v1 for `VamoosMCP`.
+
+---
+
+## 30 March 2026
+
+### TODO update
+
+Added task: set HTML itinerary summary `transparent: false` (later addressed with the 1 April styling commits above).
+
+---
+
+## 29 March 2026
+
+### Per-user trip filtering design decision — `DESIGN_DOC.md`
+
+Documented and decided the approach for showing only the logged-in user's trips on the HomePage. Four options evaluated (Vamoos API filter, Netlify Blobs, localStorage, full scan). Selected Option B (Netlify Blobs) pending Vamoos developer confirmation of a server-side traveller email filter.
+
+Implementation in `claude-code-chatbot-v1`:
+- New `netlify/functions/trip-index.js` — Netlify Blobs key-value store keyed by lowercase email
+- `@netlify/blobs` added to `package.json`
+- `CreateTripPage.jsx` — writes to blob store after `create_itinerary`
+- `ChatPanel.jsx` / `TripPage.jsx` — fire `onPersonAdded` callback to write blob after `add_person_to_itinerary`
+- `HomePage.jsx` — reads blob store keyed by logged-in email instead of calling `list_itineraries`
+
+Added §5.12 to `DESIGN_DOC.md` documenting the decision and implementation.
+
+---
+
 ## 28 March 2026
 
 ### v0 UI integration — `claude-code-chatbot-v1`
