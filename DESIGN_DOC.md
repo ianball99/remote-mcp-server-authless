@@ -111,6 +111,11 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **The tool:** `upload_created_html_itinerary_document` takes `html_content`, wraps it in a full HTML document if needed, uploads to S3 as a `.html` file, and attaches to the itinerary.
 
+**HTML styling guidance (in `SYSTEM_PROMPT.md`, updated 1 April 2026):** Generated itinerary documents should use:
+- Roboto font loaded via Google Fonts (`<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap">`)
+- White text on dark background sections (the Vamoos app displays documents over the trip background image)
+- Transparent `background` on the outer document/body (so the Vamoos app background image shows through behind the document)
+
 ### 5.2 GPX Tracks and Map Pins as POIs via JSON, Not File Upload
 **Decision:** GPX tracks are parsed server-side into waypoints and POSTed to `/poi` as JSON with `type: "track"`. Named map pins are POSTed to `/poi` as JSON with `type: "poi"`. Both are then attached to the itinerary via the fetch-then-merge pattern.
 
@@ -212,9 +217,14 @@ Fixed with explicit tool descriptions — "ALWAYS use this when YOU the assistan
 ### 6.8 ❌ deploy.yml Watching `main` Branch
 Fixed to `master` + `claude/**`.
 
+### 6.9 ❌ Durable Objects Rename Migration in wrangler.jsonc (Fixed 31 March 2026)
+`wrangler.jsonc` had two Durable Objects migrations: a v1 `new_sqlite_classes` entry for `VamoosMCP` and a v2 rename migration from `MyMCP → VamoosMCP`. The rename migration caused Cloudflare error 10074 on deploy because the class was always named `VamoosMCP` — `MyMCP` was never a deployed class name.
+
+**Fix:** Collapsed to a single `new_sqlite_classes` migration at tag v1 for `VamoosMCP`. Remove any rename migrations that reference class names that were never deployed.
+
 ---
 
-## 7. Current State (29 March 2026)
+## 7. Current State (1 April 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -228,6 +238,7 @@ Fixed to `master` + `claude/**`.
 - ✅ Summary tab: live preview when chatbot generates doc; Save button; loads saved version on page load via `fetch-document` proxy using `file.https_url`
 - ✅ Person name set to user's email address (not hardcoded string)
 - ✅ End-to-end confirmed on device — push notification received, trip in Vamoos app
+- ✅ Generated HTML itinerary documents styled with Roboto font, white text on dark backgrounds, transparent body (Vamoos background image shows through)
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
@@ -306,4 +317,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 29 March 2026*
+*Document generated 18 March 2026 — updated through 1 April 2026*
