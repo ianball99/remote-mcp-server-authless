@@ -152,7 +152,7 @@ const WRITABLE_ITINERARY_FIELDS = [
 	"vamoos_id", "departure_date", "return_date", "timezone",
 	"field1", "field2", "field3", "field4",
 	"background", "pois", "documents", "locations",
-	"notifications", "meta",
+	"notifications", "meta", "travellers",
 ] as const;
 
 // The GET response returns background/documents as full library_node_read objects
@@ -229,6 +229,21 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 					if (notif.content !== undefined) w.content = notif.content;
 					if (notif.url !== undefined) w.url = notif.url;
 					if (notif.is_active !== undefined) w.is_active = notif.is_active;
+					return w;
+				});
+			}
+		} else if (key === "travellers") {
+			// traveller_read includes id, tag, itinerary_id, created_at, updated_at (all read-only)
+			// writable fields are: name, email, details, is_active
+			const travellers = existing[key];
+			if (Array.isArray(travellers) && travellers.length > 0) {
+				out[key] = travellers.map((t: unknown) => {
+					const tr = t as Record<string, unknown>;
+					const w: Record<string, unknown> = {};
+					if (tr.name !== undefined) w.name = tr.name;
+					if (tr.email !== undefined) w.email = tr.email;
+					if (tr.details !== undefined) w.details = tr.details;
+					if (tr.is_active !== undefined) w.is_active = tr.is_active;
 					return w;
 				});
 			}
@@ -1253,6 +1268,82 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					if (!itinResponse.ok) {
 						return { content: [{ type: "text", text: `=== FAILED at step 3/3 (attach flight to itinerary) ===\n${log.join("\n\n")}` }] };
+					}
+
+					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return { content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }] };
+				}
+			},
+		);
+
+		// Add a person (traveller) to an itinerary by name and email.
+		// Uses fetch-then-merge: existing travellers are preserved; new entry is appended.
+		// Deduplicates by email (case-insensitive).
+		this.server.tool(
+			"add_person_to_itinerary",
+			"Add a person (traveller) to a Vamoos itinerary by name and email. Existing travellers are preserved. Duplicate emails (case-insensitive) are skipped.",
+			{
+				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
+				name: z.string().min(1).describe("Full name of the traveller (e.g. 'Ian Ball')"),
+				email: z.string().email().describe("Email address of the traveller"),
+			},
+			async ({ reference_code, name, email }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: Fetch existing itinerary (fetch-then-merge)
+					log.push(`[1/2] GET ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const vamoos_id = existing.vamoos_id as number;
+
+					// Extract already-stripped travellers from pickWritable output
+					const existingTravellers = Array.isArray(writableExisting.travellers)
+						? (writableExisting.travellers as Array<Record<string, unknown>>)
+						: [];
+
+					// Deduplicate by email (case-insensitive)
+					const emailLower = email.toLowerCase();
+					const duplicate = existingTravellers.find(
+						t => typeof t.email === "string" && t.email.toLowerCase() === emailLower,
+					);
+					if (duplicate) {
+						log.push(`[1/2] Traveller with email ${email} already exists — no change made.`);
+						return { content: [{ type: "text", text: `=== SKIPPED (duplicate email) ===\n${log.join("\n\n")}` }] };
+					}
+
+					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing travellers: ${existingTravellers.length}. Adding: ${name} <${email}>`);
+
+					// Step 2: POST with merged travellers
+					const mergedTravellers = [...existingTravellers, { name, email }];
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						travellers: mergedTravellers,
+					};
+
+					log.push(`[2/2] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)} — travellers: ${JSON.stringify(mergedTravellers)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[2/2] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 2/2 ===\n${log.join("\n\n")}` }] };
 					}
 
 					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };

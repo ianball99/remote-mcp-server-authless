@@ -4,6 +4,140 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 1 April 2026
+
+### HTML itinerary styling — `SYSTEM_PROMPT.md`
+
+Three successive styling improvements to the instructions Claude follows when generating HTML itinerary documents:
+
+1. **Roboto font** — added `<link>` to Google Fonts (Roboto 400/700) so generated documents use a clean sans-serif typeface instead of the browser default.
+2. **White text on dark backgrounds** — updated colour guidance so text sections on dark-coloured backgrounds use white text. The Vamoos app displays documents overlaid on the trip background image, so dark text on a semi-transparent background can be hard to read.
+3. **Transparent document background** — set `background: transparent` on the outer body/container so the Vamoos app background image shows through behind the document, rather than a solid white or coloured fill blocking it.
+
+All three changes are prompt-only (`SYSTEM_PROMPT.md`); no server code changes.
+
+---
+
+## 31 March 2026
+
+### Durable Objects migration fix — `wrangler.jsonc`
+
+Fixed a deploy error (Cloudflare error 10074) caused by a rename migration referencing `MyMCP`, a class name that was never deployed. The `wrangler.jsonc` had two migrations:
+- v1: `new_sqlite_classes` for `VamoosMCP`
+- v2: rename `MyMCP → VamoosMCP`
+
+The v2 migration was left over from an earlier draft and was invalid because `MyMCP` never existed as a live class. Collapsed to a single `new_sqlite_classes` entry at tag v1 for `VamoosMCP`.
+
+---
+
+## 30 March 2026
+
+### TODO update
+
+Added task: set HTML itinerary summary `transparent: false` (later addressed with the 1 April styling commits above).
+
+---
+
+## 29 March 2026
+
+### Per-user trip filtering design decision — `DESIGN_DOC.md`
+
+Documented and decided the approach for showing only the logged-in user's trips on the HomePage. Four options evaluated (Vamoos API filter, Netlify Blobs, localStorage, full scan). Selected Option B (Netlify Blobs) pending Vamoos developer confirmation of a server-side traveller email filter.
+
+Implementation in `claude-code-chatbot-v1`:
+- New `netlify/functions/trip-index.js` — Netlify Blobs key-value store keyed by lowercase email
+- `@netlify/blobs` added to `package.json`
+- `CreateTripPage.jsx` — writes to blob store after `create_itinerary`
+- `ChatPanel.jsx` / `TripPage.jsx` — fire `onPersonAdded` callback to write blob after `add_person_to_itinerary`
+- `HomePage.jsx` — reads blob store keyed by logged-in email instead of calling `list_itineraries`
+
+Added §5.12 to `DESIGN_DOC.md` documenting the decision and implementation.
+
+---
+
+## 28 March 2026
+
+### v0 UI integration — `claude-code-chatbot-v1`
+
+Rebuilt the chatbot UI from a single-page inline-CSS React app into a full multi-page application using the v0-chatbot-app-v2 design (dark gray + orange Tailwind CSS theme, shadcn-style layout).
+
+**Architecture changes:**
+- Added Tailwind CSS 4, React Router, lucide-react to Vite/React app
+- Extracted the full agentic loop from monolithic `App.jsx` into reusable `ChatPanel` component, re-skinned in v0 orange/dark-gray theme
+- New pages: Login (captures email → localStorage), Verify (skip-through), Home, TripPage (view/update), CreateTripPage (new trip form)
+
+**Home page — live trip list:**
+- Fetches `list_itineraries` via mcp-tool proxy on load
+- Displays all trips with title and start date
+- "Add new trip" button navigates to CreateTripPage
+
+**CreateTripPage — new trip form:**
+- Captures title, start date (flexible parsing: d/m/yy, YYYY-MM-DD, etc.), end date
+- Auto-generates reference code as `trip` + `YYYYMMDDHHmmss` — internal, not shown to user
+- Two sequential MCP calls on submit (both critical):
+  1. `create_itinerary` — creates the trip in Vamoos
+  2. `add_person_to_itinerary` — adds `{ name: "mcp chat creator", email: <login email> }` to the trip
+- Navigates to TripPage on success, passing title + start date via router state for immediate heading
+
+**TripPage (shared for view and update):**
+- Split-pane layout with draggable divider
+- Top pane: two tabs — Details (shows `get_itinerary` result) and Summary (shows draft HTML itinerary document in iframe)
+- Bottom pane: ChatPanel with full agentic loop
+- Details tab auto-refreshes after any mutating tool call (add flight, person, location, etc.)
+- Summary tab populated when `upload_created_html_itinerary_document` fires (HTML captured before PDF conversion)
+- Heading shows title + start date immediately (from router state) without waiting for `get_itinerary`
+
+**End-to-end test — confirmed working ✅**
+- New trip created successfully via CreateTripPage form
+- `add_person_to_itinerary` call succeeded — person with login email added as "mcp chat creator"
+- **IB received a push notification on phone** immediately after trip creation
+- **Trip appeared in the Vamoos mobile app** — confirmed visible and correct
+
+**Todo added:**
+- Investigate `create_itinerary` field options — check if person or other fields can be included in the initial create call to simplify the flow
+
+### UI fixes and auto-background image — `claude-code-chatbot-v1` (session 2)
+
+**Trip list parsing fix:**
+- Home page was showing raw JSON instead of a trip list
+- Two bugs fixed: Vamoos uses `field1` (not `title`) for the trip name, and `items` (not `results`) for the array key in the `list_itineraries` response
+
+**Claude-formatted trip details:**
+- Details tab was showing raw JSON from `get_itinerary`
+- New `netlify/functions/format-trip.js` — lightweight single call to `claude-haiku-4-5-20251001` (no tools, max 1024 tokens)
+- System prompt instructs Claude to produce clean plain-text with ALL CAPS section headings, skipping internal fields, including all meaningful content
+- Future-proof: any new Vamoos fields will automatically appear without code changes
+- TripPage updated to call `format-trip` after `get_itinerary` on load and after every mutating tool call
+
+**Auto background image on trip creation:**
+- Confirmed that trips without a background image fail to download to the mobile app
+- New `netlify/functions/generate-trip-image.js`:
+  1. Calls Claude Haiku to extract 2–3 destination keywords from the trip title (e.g. "Morocco Adventure" → "morocco desert landscape")
+  2. Queries Pixabay API (`PIXABAY_API_KEY` env var) for a horizontal travel photo matching those keywords
+  3. Downloads the image and returns as base64 + content type
+- `CreateTripPage.jsx` updated:
+  - Parses `vamoos_id` from the `create_itinerary` response (required by `upload_background_image`)
+  - Runs `add_person_to_itinerary` and image generation in parallel (`Promise.allSettled`)
+  - Calls `upload_background_image` MCP tool with the Pixabay image
+  - Background upload is non-fatal — trip creation still succeeds if the image step fails
+  - Button shows step-by-step progress: "Creating trip…" → "Adding details…" → "Uploading background…" → "Opening trip…"
+
+---
+
+## 25 March 2026
+
+### `add_person_to_itinerary` tool
+- Investigated travellers API shape: confirmed GET returns `id`, `tag`, `itinerary_id`, `created_at`, `updated_at` as read-only alongside writable `name`, `email`, `details`, `is_active`.
+- Added `"travellers"` to `WRITABLE_ITINERARY_FIELDS`.
+- Added `travellers` branch to `pickWritable()` — strips read-only per-entry fields, preserves `name`, `email`, `details`, `is_active`.
+- Registered `add_person_to_itinerary` MCP tool: 2-step fetch-then-merge, deduplicates by email (case-insensitive), appends `{ name, email }` for new travellers.
+- Chatbot (`claude-code-chatbot-v1`) updated: tool definition added to `TOOLS` array, `PERSON:` bullet added to system prompt.
+- Confirmed working end-to-end.
+- All docs updated: `DESIGN_DOC.md`, `VAMOOS_FIELD_NOTES.md` (new §3e), `TODO.md`, `PROGRESS_LOG.md`.
+- Investigated passcode special characters: `ib2303-1` fails to load — added to Investigate in TODO.
+
+---
+
 ## 22 March 2026
 
 ### `add_flight_to_itinerary` tool

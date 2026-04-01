@@ -57,7 +57,7 @@ include:
 
 HTML rules:
 - Write a complete HTML document with <html>, <head>, and <body> tags
-- Include a <style> block in <head> for clean, readable formatting
+- Include a Google Fonts link for Roboto and a <style> block in <head> for clean, readable formatting
 - Use <h1> for the document title
 - Use <h2> for day headings (e.g. <h2>Day 1 - Monday 5 May</h2>)
 - Use <h3> for sub-sections if needed
@@ -73,10 +73,11 @@ Example structure (expand with actual content):
 <head>
   <meta charset="utf-8">
   <title>Italy Trip - April 2025</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; font-size: 13px; line-height: 1.6; margin: 40px; }
+    body { font-family: 'Roboto', Arial, sans-serif; font-size: 13px; line-height: 1.6; margin: 40px; background: transparent; color: #fff; }
     h1 { font-size: 20px; margin-bottom: 8px; }
-    h2 { font-size: 15px; margin-top: 24px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    h2 { font-size: 15px; margin-top: 24px; border-bottom: 1px solid #555; padding-bottom: 4px; }
     h3 { font-size: 13px; margin-top: 12px; }
     ul { margin: 0 0 8px; padding-left: 20px; }
     li { margin-bottom: 3px; }
