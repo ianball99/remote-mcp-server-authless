@@ -1,5 +1,5 @@
 # Vamoos MCP Server — Design Document
-**Status:** Working as of 18 March 2026
+**Status:** Working as of 18 March 2026 (last updated 3 April 2026)
 **Author:** Built in collaboration with Claude Code
 **Repo:** `ianball99/remote-mcp-server-authless`
 
@@ -187,6 +187,8 @@ body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <fie
 - `TripPage.jsx` — wires `onPersonAdded` callback to call `trip-index` (add) with current trip info
 - `HomePage.jsx` — calls `trip-index` (get) with logged-in email instead of `list_itineraries`
 
+**Update (3 April 2026):** `TripPage.jsx` now also calls `registerTripForPerson()` after `update_itinerary` completes, so the HomePage trip list reflects updated titles and dates. Previously blob sync only fired on `create_itinerary` (in `CreateTripPage`) and `add_person_to_itinerary` (in `TripPage`).
+
 **Known limitation:** Trips created or people added outside this app won't appear until Option A is implemented.
 
 ### 5.13 Email OTP Verification per Browser (1 April 2026)
@@ -212,6 +214,16 @@ Netlify Blobs has no native TTL; expiry is enforced at read time in application 
 **Verification checked on email submit only (not on page mount).** Initial implementation included a `useEffect` on LoginPage mount that auto-redirected to `/home` if email + browserId were in localStorage and still verified. This caused a bypass bug: after sign-out, the useEffect fired before localStorage was fully cleared and redirected straight to `/home`, skipping the email entry step. Fixed by removing the mount-time check entirely. Verification is now only checked when the user submits their email — the email field is always shown after sign-out.
 
 **Three new Netlify functions:** `send-otp.js`, `verify-otp.js`, `check-verification.js`. `AuthGuard` component in `App.jsx` wraps all protected routes (`/home`, `/trip/:refCode`, `/create-trip`) and calls `check-verification` on every route load.
+
+### 5.14 Auto Summary Re-sync on Trip Mutations (2 April 2026)
+
+**Problem:** After adding a flight, person, location, or other trip data via the chatbot, the Summary tab HTML document became stale — it only reflected whatever was last explicitly generated.
+
+**Decision:** The `chat.js` SYSTEM prompt now instructs Claude to re-generate and re-upload the complete HTML itinerary summary (via `upload_created_html_itinerary_document`) immediately after every trip mutation — not just on initial creation. The instruction appears in the "Modifying an existing trip" section of the prompt:
+
+> After calling the relevant tool, re-generate the complete day-by-day HTML itinerary and call `upload_created_html_itinerary_document` to replace the existing summary. Every day from departure to return must have a `<h2>` heading — days with nothing booked get a "No details yet" note.
+
+**Trade-off:** Each mutation now triggers an extra `upload_created_html_itinerary_document` call (additional tokens + S3 write). This is acceptable because (a) mutations are infrequent and (b) a stale Summary tab undermines trust in the app.
 
 ---
 
@@ -248,7 +260,7 @@ Fixed to `master` + `claude/**`.
 
 ---
 
-## 7. Current State (1 April 2026)
+## 7. Current State (3 April 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -267,11 +279,16 @@ Fixed to `master` + `claude/**`.
 - ✅ Browser verification persists for 7 days (Netlify Blobs `browser-verifications` store)
 - ✅ `AuthGuard` wraps all protected routes — redirects to `/` if not verified or expired
 - ✅ Login page checks browser verification on email submit — skips OTP if already verified within 7 days
+- ✅ Auto summary re-sync: HTML itinerary summary regenerated after every trip mutation (never stale)
+- ✅ Blob sync on `update_itinerary` — HomePage reflects updated title/dates immediately
+- ✅ Bold markdown rendering in chat bubbles (`**text**` → `<strong>`)
+- ✅ `format-trip.js` strips markdown formatting — explicit no-asterisks instruction to Claude Haiku
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
 - No auth on MCP server (by design — the MCP server is an internal bridge, not user-facing)
 - Per-user trip filtering uses Netlify Blobs (pending Vamoos API filter investigation)
+- Redundant `get_itinerary` call before mutations — `vamoos_id` could be passed via `initialSystemContext` (see TODO investigate item, 3 April 2026)
 
 ---
 
@@ -293,6 +310,7 @@ Fixed to `master` + `claude/**`.
 | `netlify/functions/mcp-tool.js` | Proxy to Cloudflare Worker MCP endpoint |
 | `netlify/functions/format-trip.js` | Claude Haiku: raw JSON → readable text for Details tab |
 | `netlify/functions/generate-trip-image.js` | Claude Haiku + Pixabay: background image on trip create |
+| `netlify/functions/generate-summary.js` | Generates HTML itinerary summary content |
 | `netlify/functions/fetch-document.js` | Server-side proxy to fetch S3 HTML docs (avoids CORS) |
 | `netlify/functions/trip-index.js` | Netlify Blobs: per-user trip index keyed by email |
 | `netlify/functions/send-otp.js` | Generate + email 6-digit OTP via Resend; rate-limited per email |
@@ -348,4 +366,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 1 April 2026 (session 2)*
+*Document generated 18 March 2026 — updated through 3 April 2026*
