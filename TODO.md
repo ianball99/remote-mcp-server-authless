@@ -24,6 +24,7 @@ _Nothing currently in progress._
 
 ## Backlog
 
+- [ ] **Look at re-adding day of week to days in HTML** — Removed from itinerary day headings (6 Apr 2026) because the AI was hallucinating incorrect day names. Consider a reliable approach (e.g. computing it server-side before passing to the AI, or post-processing the HTML).
 - [ ] **Investigate why `field3` (Name/Location) is absent from GET itinerary response**
 - [ ] **Clarify locations tab vs general tab location field**
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify fetch-then-merge is correct (pois array must be merged, not overwritten)
