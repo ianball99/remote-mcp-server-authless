@@ -1,5 +1,5 @@
 # Vamoos MCP Server — Design Document
-**Status:** Working as of 18 March 2026 (last updated 3 April 2026)
+**Status:** Working as of 18 March 2026 (last updated 9 April 2026)
 **Author:** Built in collaboration with Claude Code
 **Repo:** `ianball99/remote-mcp-server-authless`
 
@@ -73,7 +73,9 @@ A separate REST endpoint accepting `multipart/form-data`. Handles three upload t
 - `document` — upload a file to S3, attach as a travel document
 - `gpx` — parse the GPX XML, create a Vamoos POI (no S3 needed), attach to trip
 
-This endpoint exists as a fallback/alternative path and supports CORS for browser clients.
+**This is the primary path for binary file uploads from the chatbot UI.** When Claude calls `upload_background_image`, `upload_document`, or `upload_gpx_and_attach_to_itinerary`, `ChatPanel.jsx` intercepts the tool call client-side (before it reaches MCP) and POSTs the binary file directly to `{workerUrl}/upload` as multipart form data. The Worker's `handleUpload()` function runs independently of the MCP Durable Object. It calls `fetchItinerary()` internally — exactly like the MCP tools — so no itinerary metadata needs to be supplied by the client; only `reference_code` is needed.
+
+The MCP tool definitions for these upload tools exist (so Claude knows what parameters to provide) but the execution bypasses the MCP protocol. Supports CORS for browser clients.
 
 ---
 
@@ -82,7 +84,7 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 | Tool | Purpose |
 |------|---------|
 | `create_itinerary` | Create a new trip in Vamoos |
-| `update_itinerary` | Update an existing trip (requires `vamoos_id`) |
+| `update_itinerary` | Update an existing trip — only `reference_code` required; all other fields optional and override the fetched values |
 | `list_itineraries` | List all trips (paginated) |
 | `get_itinerary` | Get full details of one trip by reference code |
 | `upload_background_image` | Upload image to S3, attach as trip background |
@@ -156,10 +158,12 @@ This endpoint exists as a fallback/alternative path and supports CORS for browse
 
 **Implementation pattern:**
 ```
-body = { ...pickWritable(existing), vamoos_id, departure_date, return_date, <field being changed> }
+body = { ...pickWritable(existing), <field being changed> }
 ```
 
-`pickWritable()` whitelists only POST-safe fields and strips read-only server fields. Three fields need array-merge logic: `pois` (deduplicate by id), `documents.travel` (deduplicate by file_url), `locations` (append without dedup).
+`pickWritable()` whitelists only POST-safe fields (including `vamoos_id`, `departure_date`, `return_date`) and strips read-only server fields. Three fields need array-merge logic: `pois` (deduplicate by id), `documents.travel` (deduplicate by file_url), `locations` (append without dedup).
+
+**Caller-supplied `vamoos_id`, `departure_date`, `return_date` removed (9 April 2026):** All tool schemas previously required the caller (Claude) to supply these fields. Since every tool already calls `fetchItinerary()` internally, these values are always available from the fetch result — the caller never needs to supply them. Removed from all tool schemas and from the `/upload` `handleUpload()` endpoint. See §5.17.
 
 ### 5.11 Detailed Step-by-Step Logging in GPX Tool
 **Decision:** The `upload_gpx_and_attach_to_itinerary` tool returns a full log of every step including HTTP status codes.
@@ -235,6 +239,24 @@ The HTML itinerary summary is always uploaded with `document_name: "Trip Summary
 
 The Vamoos `location_write` schema has no `date`, `position`, or `order` field (`additionalProperties: false`), so visit dates cannot be stored in Vamoos itself. To support chronological display of locations (e.g. departure airport → destination → return airport), the Netlify Blobs trip entry will be extended to store a `locations[]` array with `visit_date` per entry alongside `vamoos_id`. When a location is added, the AI provides the `visit_date`; `mcp-tool.js` sorts all locations by date and re-POSTs the sorted array to Vamoos before updating the blob. This also eliminates the `get_itinerary` call before location adds — `vamoos_id` and existing locations both come from the blob. Implementation planned for a future session.
 
+### 5.17 Standardised Tool Inputs — `reference_code` Only (9 April 2026)
+
+**Problem:** Several tool schemas required Claude to supply `vamoos_id`, `departure_date`, and `return_date` even though every tool already calls `fetchItinerary()` internally and gets those values from the fetched itinerary. This forced Claude to know `vamoos_id` before calling any update tool (sometimes requiring an extra `get_itinerary` call), and created a risk of stale/wrong values being supplied.
+
+**Fix:** Removed `vamoos_id`, `departure_date`, `return_date` from the input schemas of all update tools. Also applied to the `handleUpload()` function (the `/upload` endpoint — see §3). All these values come from `fetchItinerary()` internally.
+
+**Tools updated:** `update_itinerary`, `upload_background_image`, `upload_gpx_and_attach_to_itinerary`, `add_poi_and_attach_to_itinerary`, `upload_created_html_itinerary_document`, `upload_document`, `legacy_upload_created_itinerary_document`.
+
+**`update_itinerary` additionally:** All fields (`departure_date`, `return_date`, `field1`, `field3`) made optional — only supply the fields you want to change. The rest are preserved from the fetched itinerary. Only `reference_code` is required.
+
+**Chatbot tool schemas and system prompt** updated in `chat.js` to match — `vamoos_id` removed from all tool definitions and system prompt instructions.
+
+### 5.18 Initial HTML Stub Generated in Code, Not via Claude (9 April 2026)
+
+**Problem:** Claude API logs showed a Claude Haiku call happening on every new trip creation. This came from `generate-summary.js`, a Netlify function that called Haiku to generate an initial HTML itinerary stub from the trip title and dates. Since the trip has no content at creation time, the output was always identical — a heading, a date range, and "No details added yet."
+
+**Fix:** Deleted `generate-summary.js`. `CreateTripPage.jsx` now generates the initial stub in JavaScript code (`buildInitialHtml()`) and uploads it directly via `upload_created_html_itinerary_document`. No Claude API call needed. Eliminates one Haiku call per trip creation.
+
 ---
 
 ## 6. Blind Alleys and Mistakes to Avoid
@@ -263,14 +285,14 @@ Fixed with explicit tool descriptions — "ALWAYS use this when YOU the assistan
 ### 6.8 ❌ deploy.yml Watching `main` Branch
 Fixed to `master` + `claude/**`.
 
-### 6.9 ❌ Durable Objects Rename Migration in wrangler.jsonc (Fixed 31 March 2026)
-`wrangler.jsonc` had two Durable Objects migrations: a v1 `new_sqlite_classes` entry for `VamoosMCP` and a v2 rename migration from `MyMCP → VamoosMCP`. The rename migration caused Cloudflare error 10074 on deploy because the class was always named `VamoosMCP` — `MyMCP` was never a deployed class name.
+### 6.9 ❌ Durable Objects Migrations in wrangler.jsonc (Fixed 9 April 2026)
+`wrangler.jsonc` had a `migrations` block with a v1 `new_sqlite_classes` entry for `MyMCP`. `MyMCP` was never the name of a deployed class — the code has always exported `VamoosMCP`. Multiple migration attempts (rename, delete, new_sqlite_class) all failed with Cloudflare error 10074 because they referenced class names that had no history in Cloudflare's migration state.
 
-**Fix:** Collapsed to a single `new_sqlite_classes` migration at tag v1 for `VamoosMCP`. Remove any rename migrations that reference class names that were never deployed.
+**Fix:** Removed the `migrations` block entirely. `VamoosMCP` is registered via the `durable_objects` binding alone, which is sufficient — Cloudflare creates the DO namespace from the binding when it first sees the class. No migration entries are needed unless you need SQLite storage support (which the current MCP session DOs don't require).
 
 ---
 
-## 7. Current State (8 April 2026)
+## 7. Current State (9 April 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -296,12 +318,15 @@ Fixed to `master` + `claude/**`.
 - ✅ `format-trip.js` strips markdown formatting — explicit no-asterisks instruction to Claude Haiku
 - ✅ Trip date entry defaults to current year when no year specified; partial date input suppressed from preview
 - ✅ White logo variants in use across all pages
+- ✅ All update tools standardised — only `reference_code` required; `vamoos_id`/`departure_date`/`return_date` fetched internally
+- ✅ `/upload` endpoint (`handleUpload`) standardised — only `reference_code` required in FormData; all itinerary data fetched internally
+- ✅ `generate-summary.js` removed — initial HTML stub generated in code, no Haiku call on trip creation
+- ✅ Cloudflare Worker deploy unblocked — `migrations` block removed from `wrangler.jsonc`
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
 - No auth on MCP server (by design — the MCP server is an internal bridge, not user-facing)
 - Per-user trip filtering uses Netlify Blobs (pending Vamoos API filter investigation)
-- Redundant `get_itinerary` call before mutations — `vamoos_id` could be passed via `initialSystemContext` (see TODO investigate item, 3 April 2026)
 - Locations added in conversation order, not chronological travel order — design agreed, implementation pending (see §5.16 and TODO)
 
 ---
@@ -324,7 +349,6 @@ Fixed to `master` + `claude/**`.
 | `netlify/functions/mcp-tool.js` | Proxy to Cloudflare Worker MCP endpoint |
 | `netlify/functions/format-trip.js` | Claude Haiku: raw JSON → readable text for Details tab |
 | `netlify/functions/generate-trip-image.js` | Claude Haiku + Pixabay: background image on trip create |
-| `netlify/functions/generate-summary.js` | Generates HTML itinerary summary content |
 | `netlify/functions/fetch-document.js` | Server-side proxy to fetch S3 HTML docs (avoids CORS) |
 | `netlify/functions/trip-index.js` | Netlify Blobs: per-user trip index keyed by email |
 | `netlify/functions/send-otp.js` | Generate + email 6-digit OTP via Resend; rate-limited per email |
@@ -380,4 +404,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 8 April 2026*
+*Document generated 18 March 2026 — updated through 9 April 2026*
