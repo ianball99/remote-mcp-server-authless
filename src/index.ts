@@ -584,41 +584,41 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Update an existing itinerary
 		this.server.tool(
 			"update_itinerary",
-			"Update an existing Vamoos trip/itinerary. Requires the vamoos_id which stays constant across updates.",
+			"Update an existing Vamoos trip/itinerary. Only supply the fields you want to change — all others are preserved automatically via an internal fetch-then-merge.",
 			{
 				reference_code: z
 					.string()
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary to update"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary — stays constant across all updates"),
 				departure_date: z
 					.string()
 					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
+					.optional()
+					.describe("New departure date (YYYY-MM-DD) — omit to keep existing"),
 				return_date: z
 					.string()
 					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
+					.optional()
+					.describe("New return date (YYYY-MM-DD) — omit to keep existing"),
 				field1: z
 					.string()
 					.max(128)
 					.optional()
-					.describe("Destination / Event Title (optional)"),
+					.describe("Destination / Event Title — omit to keep existing"),
 				field3: z
 					.string()
 					.max(128)
 					.optional()
-					.describe("Name / Location (optional)"),
+					.describe("Name / Location — omit to keep existing"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, field1, field3 }) => {
+			async ({ reference_code, departure_date, return_date, field1, field3 }) => {
 				const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
 
-				// Spread all existing fields so nothing is lost, then apply our changes on top
-				const body: Record<string, unknown> = { ...pickWritable(existing), vamoos_id, departure_date, return_date };
+				// Spread all existing fields so nothing is lost, then apply only the supplied overrides
+				const body: Record<string, unknown> = { ...pickWritable(existing) };
+				if (departure_date !== undefined) body.departure_date = departure_date;
+				if (return_date !== undefined) body.return_date = return_date;
 				if (field1 !== undefined) body.field1 = field1;
 				if (field3 !== undefined) body.field3 = field3;
 
@@ -757,25 +757,13 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a background image to an itinerary
 		this.server.tool(
 			"upload_background_image",
-			"Upload a background image to a Vamoos itinerary. Provide the file as base64-encoded data.",
+			"Upload a background image to a Vamoos itinerary. Provide the file as base64-encoded data. Trip metadata is fetched automatically — only the reference_code is needed to identify the trip.",
 			{
 				reference_code: z
 					.string()
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary"),
-				departure_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
-				return_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
 				file_data: z
 					.string()
 					.describe("Base64-encoded image file data"),
@@ -786,7 +774,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.string()
 					.describe("MIME type (e.g. image/jpeg, image/png)"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, file_data, filename, content_type }) => {
+			async ({ reference_code, file_data, filename, content_type }) => {
 				try {
 					const [existing, { url, s3url }] = await Promise.all([
 						fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN),
@@ -798,9 +786,6 @@ export class VamoosMCP extends McpAgent<Env> {
 					// Spread all existing fields, then replace background
 					const body: Record<string, unknown> = {
 						...pickWritable(existing),
-						vamoos_id,
-						departure_date,
-						return_date,
 						background: { file_url: s3url, name: "Background Image" },
 					};
 
@@ -848,18 +833,6 @@ export class VamoosMCP extends McpAgent<Env> {
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary"),
-				departure_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
-				return_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
 				document_name: z
 					.string()
 					.describe("Display name shown in the Vamoos app (e.g. 'Travel Itinerary', 'Welcome Letter')"),
@@ -867,7 +840,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.string()
 					.describe("The full document written as plain markdown. Use # for the title, ## for headings, **bold**, and - for bullets. No HTML."),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, document_name, markdown_content }) => {
+			async ({ reference_code, document_name, markdown_content }) => {
 				try {
 					const html = wrapHtmlIfNeeded(markdownToHtml(markdown_content), document_name);
 					const fileBytes = await generatePdfFromHtml(html, this.env);
@@ -879,9 +852,6 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					const legacyBody: Record<string, unknown> = {
 						...pickWritable(existing),
-						vamoos_id,
-						departure_date,
-						return_date,
 						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
@@ -921,25 +891,13 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a GPX track file as a POI and attach it to an itinerary
 		this.server.tool(
 			"upload_gpx_and_attach_to_itinerary",
-			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content and the original filename.",
+			"Upload a GPX track file to Vamoos as a Point of Interest (POI) and attach it to a trip. The track will appear on the map in the Vamoos app. Provide the raw GPX XML content and the original filename. Trip metadata is fetched automatically — only the reference_code is needed to identify the trip.",
 			{
 				reference_code: z
 					.string()
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary"),
-				departure_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
-				return_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
 				gpx_content: z
 					.string()
 					.describe("Raw GPX XML content to upload"),
@@ -947,7 +905,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.string()
 					.describe("Original filename of the GPX file (e.g. mytrack.gpx), used as the POI name"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, gpx_content, filename }) => {
+			async ({ reference_code, gpx_content, filename }) => {
 				const log: string[] = [];
 				try {
 					// Parse waypoints from GPX
@@ -1008,9 +966,6 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					const itinPayload: Record<string, unknown> = {
 						...writableExisting,
-						vamoos_id,
-						departure_date,
-						return_date,
 						pois: mergedPois,
 						locations: mergedLocations,
 					};
@@ -1055,25 +1010,13 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Add a POI (type=poi) and attach it to an itinerary
 		this.server.tool(
 			"add_poi_and_attach_to_itinerary",
-			"Add a Point of Interest (POI) to Vamoos and attach it to a trip. The POI will appear on the map in the Vamoos app. Provide a name and coordinates.",
+			"Add a Point of Interest (POI) to Vamoos and attach it to a trip. The POI will appear on the map in the Vamoos app. Provide a name and coordinates. Trip metadata is fetched automatically — only the reference_code is needed to identify the trip.",
 			{
 				reference_code: z
 					.string()
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary"),
-				departure_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
-				return_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
 				name: z
 					.string()
 					.describe("Display name for the POI"),
@@ -1084,7 +1027,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.string()
 					.describe("Longitude of the POI (e.g. \"2.3522\")"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, name, latitude, longitude }) => {
+			async ({ reference_code, name, latitude, longitude }) => {
 				const log: string[] = [];
 				try {
 					// Step 1: POST to /poi with JSON
@@ -1140,9 +1083,6 @@ export class VamoosMCP extends McpAgent<Env> {
 
 					const itinPayload: Record<string, unknown> = {
 						...writableExisting,
-						vamoos_id,
-						departure_date,
-						return_date,
 						pois: mergedPois,
 						locations: mergedLocations,
 					};
@@ -1433,25 +1373,13 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload an AI-generated HTML document directly as an .html file to an itinerary
 		this.server.tool(
 			"upload_created_html_itinerary_document",
-			"ALWAYS use this tool when YOU (the assistant) are generating or writing any document content to attach to a Vamoos trip — for example itineraries, welcome letters, or information packs. Write the full document as HTML. The server uploads it as a .html file and attaches it to the trip. Do NOT use upload_document for AI-generated content.",
+			"ALWAYS use this tool when YOU (the assistant) are generating or writing any document content to attach to a Vamoos trip — for example itineraries, welcome letters, or information packs. Write the full document as HTML. The server uploads it as a .html file and attaches it to the trip. Do NOT use upload_document for AI-generated content. Trip metadata is fetched automatically — only the reference_code is needed to identify the trip.",
 			{
 				reference_code: z
 					.string()
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary"),
-				departure_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
-				return_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
 				document_name: z
 					.string()
 					.describe("Display name shown in the Vamoos app (e.g. 'Travel Itinerary'). Also used as the filename."),
@@ -1459,7 +1387,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.string()
 					.describe("The full document written as HTML. Can be a complete HTML document or a fragment — the server will wrap fragments automatically."),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, document_name, html_content }) => {
+			async ({ reference_code, document_name, html_content }) => {
 				try {
 					const fullHtml = wrapHtmlIfNeeded(html_content, document_name);
 					const fileBytes = new TextEncoder().encode(fullHtml);
@@ -1474,9 +1402,6 @@ export class VamoosMCP extends McpAgent<Env> {
 					// Spread all existing fields, then merge documents
 					const body: Record<string, unknown> = {
 						...pickWritable(existing),
-						vamoos_id,
-						departure_date,
-						return_date,
 						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
@@ -1516,25 +1441,13 @@ export class VamoosMCP extends McpAgent<Env> {
 		// Upload a document to an itinerary — supports both HTML→PDF conversion and binary file upload
 		this.server.tool(
 			"upload_document",
-			"Upload a user-supplied file to a Vamoos itinerary. Use this tool ONLY when the user has provided a file (base64 encoded) or raw HTML to upload — NOT when you are writing the document content yourself. For AI-generated documents use upload_created_html_itinerary_document instead. Two modes: (1) HTML→PDF: provide html_content with raw HTML to convert to PDF. (2) Binary file: provide file_data (base64) + filename + content_type.",
+			"Upload a user-supplied file to a Vamoos itinerary. Use this tool ONLY when the user has provided a file (base64 encoded) or raw HTML to upload — NOT when you are writing the document content yourself. For AI-generated documents use upload_created_html_itinerary_document instead. Two modes: (1) HTML→PDF: provide html_content with raw HTML to convert to PDF. (2) Binary file: provide file_data (base64) + filename + content_type. Trip metadata is fetched automatically — only the reference_code is needed to identify the trip.",
 			{
 				reference_code: z
 					.string()
 					.min(1)
 					.max(64)
 					.describe("Reference code (Passcode) of the itinerary"),
-				vamoos_id: z
-					.number()
-					.int()
-					.describe("The vamoos_id of the itinerary"),
-				departure_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Departure date (YYYY-MM-DD)"),
-				return_date: z
-					.string()
-					.regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD")
-					.describe("Return date (YYYY-MM-DD)"),
 				document_name: z
 					.string()
 					.describe("Display name shown in the app (e.g. Travel Itinerary)"),
@@ -1561,7 +1474,7 @@ export class VamoosMCP extends McpAgent<Env> {
 					.optional()
 					.describe("MIME type (e.g. application/pdf) — required when using file_data"),
 			},
-			async ({ reference_code, vamoos_id, departure_date, return_date, document_name, html_content, pdf_title, file_data, filename, content_type }) => {
+			async ({ reference_code, document_name, html_content, pdf_title, file_data, filename, content_type }) => {
 				try {
 					let fileBytes: Uint8Array;
 					let uploadFilename: string;
@@ -1594,9 +1507,6 @@ export class VamoosMCP extends McpAgent<Env> {
 					// Spread all existing fields, then merge documents
 					const body: Record<string, unknown> = {
 						...pickWritable(existing),
-						vamoos_id,
-						departure_date,
-						return_date,
 						documents: buildDocumentsBody(existing, [{ file_url: s3url, name: document_name }]),
 					};
 
