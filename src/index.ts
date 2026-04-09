@@ -361,18 +361,15 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 			});
 		}
 
-		const vamoosId = Number(formData.get("vamoos_id") || 0);
 		const referenceCode = String(formData.get("reference_id") || formData.get("reference_code") || "");
-		const departureDate = String(formData.get("departure_date") || "");
-		const returnDate = String(formData.get("return_date") || "");
 		const filename = String(formData.get("image_filename") || file.name);
 		const contentType = String(formData.get("image_content_type") || file.type || "application/octet-stream");
 		const uploadType = String(formData.get("upload_type") || "background");
 		const documentName = String(formData.get("document_name") || "Document");
 
-		if (!referenceCode || !departureDate || !returnDate) {
+		if (!referenceCode) {
 			return new Response(
-				JSON.stringify({ error: "Missing required fields: reference_id, departure_date, return_date" }),
+				JSON.stringify({ error: "Missing required field: reference_id" }),
 				{ status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
 			);
 		}
@@ -431,9 +428,6 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 
 			const gpxItinBody: Record<string, unknown> = {
 				...writableExisting,
-				vamoos_id: vamoosId,
-				departure_date: departureDate,
-				return_date: returnDate,
 				pois: mergedPois,
 				locations: mergedLocations,
 			};
@@ -469,9 +463,6 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		// Spread all existing fields, then apply our change on top
 		const itineraryBody: Record<string, unknown> = {
 			...pickWritable(existing),
-			vamoos_id: vamoosId,
-			departure_date: departureDate,
-			return_date: returnDate,
 		};
 
 		if (uploadType === "document") {
