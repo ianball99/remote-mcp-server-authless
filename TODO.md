@@ -24,6 +24,7 @@ _Nothing currently in progress._
 
 ## Backlog
 
+- [ ] **8 Apr 2026 — Location chronological ordering** — Store `locations[]` with `visit_date` per entry in the Netlify Blobs trip index alongside `vamoos_id`. AI passes `visit_date` when calling `add_location_to_itinerary`; `mcp-tool.js` sorts all locations by date and re-POSTs sorted array to Vamoos, then updates the blob. Also eliminates the `get_itinerary` call for location adds (vamoos_id + existing locations come from blob). See 8 April 2026 PROGRESS_LOG entry for full design discussion.
 - [ ] **Look at re-adding day of week to days in HTML** — Removed from itinerary day headings (6 Apr 2026) because the AI was hallucinating incorrect day names. Consider a reliable approach (e.g. computing it server-side before passing to the AI, or post-processing the HTML).
 - [ ] **Investigate why `field3` (Name/Location) is absent from GET itinerary response**
 - [ ] **Clarify locations tab vs general tab location field**

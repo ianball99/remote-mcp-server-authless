@@ -4,6 +4,43 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 8 April 2026
+
+### Bug fixes (chatbot — branch `claude/fix-trip-date-year-c7UnC`)
+
+**Trip date year defaults to current year**
+- `parseDate()` in `CreateTripPage.jsx`: made year group optional in regex; defaults to `new Date().getFullYear()` when absent. `chat.js` system prompt updated to instruct AI to assume current year when user omits it.
+- Follow-up: suppressed spurious date preview for partial input ("1", "1.") by guarding the `new Date()` fallback with `/^\d+[\/\-\.]?$/` — bare-digit strings return null instead of resolving to 2001.
+
+**HTML summary always uses white text**
+- `chat.js` example `<style>` block was missing `color: #fff` and `background: transparent`. AI was copying the example verbatim and producing black text after trip updates. Fixed example to match the dark theme enforced by `generate-summary.js`.
+
+**Day of week removed from HTML itinerary headings**
+- AI was hallucinating incorrect day names (e.g. "Tuesday 1 April" on a Wednesday). Removed day-of-week from `<h2>` format example in both `generate-summary.js` and `chat.js`. Added TODO to re-add via a reliable computed approach in a future session.
+
+**Duplicate HTML summary documents on title change**
+- When a trip title changed, AI uploaded summary under a new name ("Trip Summary-{new title}"), leaving two documents in Vamoos. Fixed by using a fixed `document_name: "Trip Summary"` everywhere (was dynamic). Vamoos deduplicates by name server-side. `TripPage.jsx` document search updated from `startsWith("Trip Summary")` to exact match.
+
+**`add_poi_and_attach_to_itinerary` removed from chatbot**
+- Tool definition, system prompt instruction, and `mutatingTools` reference removed from chatbot. GPX track uploads and standalone location adds retained. MCP server unchanged — tool still exists there.
+
+**Logo updates**
+- Replaced `vamoos-logo-transparent.png` → `vamoos-logo-transparent-white-v.png` and `vamoos-logo-and-text-transparent.png` → `vamoos-logo-and-text-transparent-white-v.png` across ChatPanel, LoginPage, CreateTripPage, HomePage, VerifyPage.
+
+### Analysis / design (no code this session)
+
+**Token consumption root causes identified**
+- Full conversation history (including verbose MCP tool results) re-sent on every API call in the agentic loop — cost grows quadratically with tool call count.
+- `get_itinerary` called before almost every mutation, returning large JSON each time.
+- Highest-impact fix: pass `vamoos_id` from frontend via `initialSystemContext` (already in TODO).
+
+**Location chronological ordering — approach agreed**
+- Vamoos `location_write` schema has no date/order field (`additionalProperties: false`), so ordering must be handled outside Vamoos.
+- Agreed approach: extend the Netlify Blobs trip entry to store a `locations[]` array with `visit_date` per entry alongside `vamoos_id`. When a location is added, AI passes `visit_date`; `mcp-tool.js` sorts all locations by date and re-POSTs sorted array to Vamoos, then updates blob. This also eliminates `get_itinerary` for location adds (vamoos_id + existing locations come from blob).
+- Implementation deferred to a future session.
+
+---
+
 ## 1 April 2026 (session 2)
 
 ### Email OTP verification per browser — `claude-code-chatbot-v1`

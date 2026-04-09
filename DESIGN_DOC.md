@@ -217,6 +217,8 @@ Netlify Blobs has no native TTL; expiry is enforced at read time in application 
 
 ### 5.14 Auto Summary Re-sync on Trip Mutations (2 April 2026)
 
+
+
 **Problem:** After adding a flight, person, location, or other trip data via the chatbot, the Summary tab HTML document became stale — it only reflected whatever was last explicitly generated.
 
 **Decision:** The `chat.js` SYSTEM prompt now instructs Claude to re-generate and re-upload the complete HTML itinerary summary (via `upload_created_html_itinerary_document`) immediately after every trip mutation — not just on initial creation. The instruction appears in the "Modifying an existing trip" section of the prompt:
@@ -224,6 +226,14 @@ Netlify Blobs has no native TTL; expiry is enforced at read time in application 
 > After calling the relevant tool, re-generate the complete day-by-day HTML itinerary and call `upload_created_html_itinerary_document` to replace the existing summary. Every day from departure to return must have a `<h2>` heading — days with nothing booked get a "No details yet" note.
 
 **Trade-off:** Each mutation now triggers an extra `upload_created_html_itinerary_document` call (additional tokens + S3 write). This is acceptable because (a) mutations are infrequent and (b) a stale Summary tab undermines trust in the app.
+
+### 5.15 Fixed HTML Summary Document Name (8 April 2026)
+
+The HTML itinerary summary is always uploaded with `document_name: "Trip Summary"` regardless of trip title. Previously the name included the title (e.g. `"Trip Summary-Italy 2026"`), causing a duplicate document whenever the title changed — Vamoos appends rather than replacing when the document name differs. Using a fixed name means Vamoos deduplicates by name on re-upload. `TripPage.jsx` searches for the document by exact name match (`d.name === "Trip Summary"`).
+
+### 5.16 Location Chronological Ordering via Netlify Blobs (design agreed 8 April 2026, not yet implemented)
+
+The Vamoos `location_write` schema has no `date`, `position`, or `order` field (`additionalProperties: false`), so visit dates cannot be stored in Vamoos itself. To support chronological display of locations (e.g. departure airport → destination → return airport), the Netlify Blobs trip entry will be extended to store a `locations[]` array with `visit_date` per entry alongside `vamoos_id`. When a location is added, the AI provides the `visit_date`; `mcp-tool.js` sorts all locations by date and re-POSTs the sorted array to Vamoos before updating the blob. This also eliminates the `get_itinerary` call before location adds — `vamoos_id` and existing locations both come from the blob. Implementation planned for a future session.
 
 ---
 
@@ -260,7 +270,7 @@ Fixed to `master` + `claude/**`.
 
 ---
 
-## 7. Current State (3 April 2026)
+## 7. Current State (8 April 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -274,21 +284,25 @@ Fixed to `master` + `claude/**`.
 - ✅ Summary tab: live preview when chatbot generates doc; Save button; loads saved version on page load via `fetch-document` proxy using `file.https_url`
 - ✅ Person name set to user's email address (not hardcoded string)
 - ✅ End-to-end confirmed on device — push notification received, trip in Vamoos app
-- ✅ Generated HTML itinerary documents styled with Roboto font, white text on dark backgrounds, transparent body (Vamoos background image shows through)
+- ✅ Generated HTML itinerary documents styled with white text, transparent background (Vamoos background image shows through) — consistent across initial creation and updates
 - ✅ Email OTP verification per browser (Resend, 6-digit code, 5-min expiry, `noreply@send.infoalchemy.co.uk`)
 - ✅ Browser verification persists for 7 days (Netlify Blobs `browser-verifications` store)
 - ✅ `AuthGuard` wraps all protected routes — redirects to `/` if not verified or expired
 - ✅ Login page checks browser verification on email submit — skips OTP if already verified within 7 days
 - ✅ Auto summary re-sync: HTML itinerary summary regenerated after every trip mutation (never stale)
+- ✅ HTML summary always named "Trip Summary" — no duplicates when trip title changes
 - ✅ Blob sync on `update_itinerary` — HomePage reflects updated title/dates immediately
 - ✅ Bold markdown rendering in chat bubbles (`**text**` → `<strong>`)
 - ✅ `format-trip.js` strips markdown formatting — explicit no-asterisks instruction to Claude Haiku
+- ✅ Trip date entry defaults to current year when no year specified; partial date input suppressed from preview
+- ✅ White logo variants in use across all pages
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
 - No auth on MCP server (by design — the MCP server is an internal bridge, not user-facing)
 - Per-user trip filtering uses Netlify Blobs (pending Vamoos API filter investigation)
 - Redundant `get_itinerary` call before mutations — `vamoos_id` could be passed via `initialSystemContext` (see TODO investigate item, 3 April 2026)
+- Locations added in conversation order, not chronological travel order — design agreed, implementation pending (see §5.16 and TODO)
 
 ---
 
@@ -366,4 +380,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 3 April 2026*
+*Document generated 18 March 2026 — updated through 8 April 2026*
