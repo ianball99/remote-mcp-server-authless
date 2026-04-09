@@ -15,9 +15,8 @@
 		},
 		{
 			"tag": "v2",
-			"renamed_classes": [
-				{ "from": "MyMCP", "to": "VamoosMCP" }
-			]
+			"deleted_classes": ["MyMCP"],
+			"new_sqlite_classes": ["VamoosMCP"]
 		}
 	],
 	"durable_objects": {
