@@ -1301,8 +1301,9 @@ export class VamoosMCP extends McpAgent<Env> {
 				longitude: z.string().describe("Longitude (e.g. '12.4964')"),
 				description: z.string().optional().describe("Optional description shown in the app"),
 				icon_id: z.number().int().optional().describe("Optional icon ID"),
+				position: z.number().int().min(0).optional().describe("Zero-based index at which to insert the location in the existing locations array. Omit to append at the end. Values past the array length are clamped to append."),
 			},
-			async ({ reference_code, name, latitude, longitude, description, icon_id }) => {
+			async ({ reference_code, name, latitude, longitude, description, icon_id, position }) => {
 				const log: string[] = [];
 				try {
 					// Step 1: Fetch existing itinerary (fetch-then-merge)
@@ -1317,9 +1318,16 @@ export class VamoosMCP extends McpAgent<Env> {
 					const newLocation: Record<string, unknown> = { name, latitude, longitude };
 					if (description !== undefined) newLocation.description = description;
 					if (icon_id !== undefined) newLocation.icon_id = icon_id;
-					const mergedLocations = [...existingLocations, newLocation];
+					const insertIdx = (position !== undefined && position <= existingLocations.length)
+						? position
+						: existingLocations.length;
+					const mergedLocations = [
+						...existingLocations.slice(0, insertIdx),
+						newLocation,
+						...existingLocations.slice(insertIdx),
+					];
 
-					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing locations=${existingLocations.length} → merged=${mergedLocations.length}`);
+					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing locations=${existingLocations.length} → inserted at index ${insertIdx} → merged=${mergedLocations.length}`);
 
 					// Step 2: POST itinerary with merged locations
 					const itinPayload: Record<string, unknown> = {
