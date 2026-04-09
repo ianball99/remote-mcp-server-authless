@@ -8,16 +8,6 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
-	"migrations": [
-		{
-			"new_sqlite_classes": ["MyMCP"],
-			"tag": "v1"
-		},
-		{
-			"tag": "v2",
-			"deleted_classes": ["MyMCP"]
-		}
-	],
 	"durable_objects": {
 		"bindings": [
 			{
