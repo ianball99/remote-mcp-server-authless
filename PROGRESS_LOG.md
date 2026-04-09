@@ -4,6 +4,38 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 9 April 2026
+
+### Standardise itinerary API usage — both repos
+
+**Goal:** Remove all redundant caller-supplied fields from tool schemas. Every update tool already calls `fetchItinerary()` internally, so `vamoos_id`, `departure_date`, and `return_date` should never need to be supplied by the caller (Claude).
+
+**MCP server (`remote-mcp-server-authless`, branch `claude/standardize-itinerary-api-usage-8igCd`):**
+- Removed `vamoos_id`, `departure_date`, `return_date` from Zod schemas and handler destructuring for: `update_itinerary`, `upload_background_image`, `upload_gpx_and_attach_to_itinerary`, `add_poi_and_attach_to_itinerary`, `upload_created_html_itinerary_document`, `upload_document`, `legacy_upload_created_itinerary_document`
+- `update_itinerary`: all fields now optional — only `reference_code` required; the handler applies conditional overrides (`if (field !== undefined) body.field = field`) so only explicitly supplied fields change
+- `handleUpload()` (the `/upload` HTTP endpoint): removed `vamoos_id`, `departure_date`, `return_date` from FormData parsing and validation; now calls `fetchItinerary()` internally like the MCP tools. Only `reference_code` required in FormData.
+
+**Chatbot (`claude-code-chatbot-v1`, branch `claude/std-itin-api`):**
+- `chat.js` tool schemas: removed `vamoos_id`, `departure_date`, `return_date` from `update_itinerary`, `upload_background_image`, `upload_created_html_itinerary_document`, `upload_gpx_and_attach_to_itinerary`, `upload_document`
+- `chat.js` system prompt: removed all references to `vamoos_id`; updated Steps 2/3 and upload rules to only mention `reference_code`
+- `ChatPanel.jsx`: removed `vamoos_id`, `departure_date`, `return_date` from the multipart FormData sent to `/upload`
+
+**`generate-summary.js` removed:**
+- Claude API logs showed a Haiku call on every trip creation — traced to `generate-summary.js` generating the initial HTML stub
+- Since a newly created trip has no content, the stub was always the same format (heading + date range + "No details added yet")
+- Replaced with `buildInitialHtml()` in `CreateTripPage.jsx` — generates the stub in code, no AI call needed
+- `generate-summary.js` deleted; `TripPage.jsx` `generate-summary` fallback removed
+
+**Cloudflare Worker deploy unblocked:**
+- All code changes above were blocked from deploying because `wrangler.jsonc` had a `migrations` block referencing `MyMCP` — a class that was never exported in any deployed script version
+- Three successive migration approaches all failed (rename, delete, delete+new_sqlite) with Cloudflare error 10074
+- Root cause: `MyMCP` was never in any deployed script, so no migration operation could reference it
+- Fix: removed the entire `migrations` block. `VamoosMCP` works via the `durable_objects` binding alone; no migration entries needed.
+
+**Verified working:** Background image upload and document upload both confirmed working end-to-end after deploy.
+
+---
+
 ## 8 April 2026
 
 ### Bug fixes (chatbot — branch `claude/fix-trip-date-year-c7UnC`)
