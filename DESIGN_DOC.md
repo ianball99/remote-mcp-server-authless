@@ -1,5 +1,5 @@
 # Vamoos MCP Server — Design Document
-**Status:** Working as of 18 March 2026 (last updated 9 April 2026)
+**Status:** Working as of 18 March 2026 (last updated 10 April 2026)
 **Author:** Built in collaboration with Claude Code
 **Repo:** `ianball99/remote-mcp-server-authless`
 
@@ -235,9 +235,26 @@ Netlify Blobs has no native TTL; expiry is enforced at read time in application 
 
 The HTML itinerary summary is always uploaded with `document_name: "Trip Summary"` regardless of trip title. Previously the name included the title (e.g. `"Trip Summary-Italy 2026"`), causing a duplicate document whenever the title changed — Vamoos appends rather than replacing when the document name differs. Using a fixed name means Vamoos deduplicates by name on re-upload. `TripPage.jsx` searches for the document by exact name match (`d.name === "Trip Summary"`).
 
-### 5.16 Location Chronological Ordering via Netlify Blobs (design agreed 8 April 2026, not yet implemented)
+### 5.16 Location Chronological Ordering via Position Insert (10 April 2026)
 
-The Vamoos `location_write` schema has no `date`, `position`, or `order` field (`additionalProperties: false`), so visit dates cannot be stored in Vamoos itself. To support chronological display of locations (e.g. departure airport → destination → return airport), the Netlify Blobs trip entry will be extended to store a `locations[]` array with `visit_date` per entry alongside `vamoos_id`. When a location is added, the AI provides the `visit_date`; `mcp-tool.js` sorts all locations by date and re-POSTs the sorted array to Vamoos before updating the blob. This also eliminates the `get_itinerary` call before location adds — `vamoos_id` and existing locations both come from the blob. Implementation planned for a future session.
+**Problem:** The Vamoos `location_write` schema has no `date`, `position`, or `order` field (`additionalProperties: false`), so visit dates cannot be stored in Vamoos itself. Locations were appended in conversation order, not chronological travel order (e.g. a return airport added after a hotel would appear last, even if the hotel visit is mid-trip).
+
+**Original plan (8 April 2026):** Store `visit_date` per location in a Netlify Blobs `locations[]` array, sort by date, and re-POST the sorted array to Vamoos.
+
+**Actual implementation (10 April 2026):** A simpler approach — let the AI determine the correct insertion position and splice-insert at that index. No external state needed.
+
+**MCP server (`src/index.ts`):** `add_location_to_itinerary` now accepts an optional `position` parameter (integer, 0-based). When provided, the new location is spliced into the existing `locations` array at that index rather than appended. When omitted, the location is appended as before (backwards-compatible).
+
+**Chatbot system prompt (`chat.js`):** A new "Managing locations (chronological order)" section instructs Claude to:
+1. Determine a `visit_datetime` for each new location (departure date/time for airports, check-in for hotels, visit date for activities)
+2. Compare against existing locations' known visit times
+3. Pass the correct `position` value to `add_location_to_itinerary` so the location lands in chronological travel order
+
+**Chatbot proxy (`mcp-tool.js`):** Passes the `position` argument through to the MCP server when present in Claude's tool call.
+
+**Frontend (`TripPage.jsx`):** The Locations tab now supports drag-and-drop reordering via `react-beautiful-dnd`. When a location is dragged to a new position, the reordered `locations` array is POSTed to Vamoos via `update_itinerary`. This provides a manual override if the AI places a location incorrectly.
+
+**Trade-off vs. Blobs approach:** The position-insert approach is simpler (no external state, no blob reads/writes) but relies on the AI correctly determining chronological order from context. The drag-and-drop UI serves as a safety net for manual correction.
 
 ### 5.17 Standardised Tool Inputs — `reference_code` Only (9 April 2026)
 
@@ -256,6 +273,16 @@ The Vamoos `location_write` schema has no `date`, `position`, or `order` field (
 **Problem:** Claude API logs showed a Claude Haiku call happening on every new trip creation. This came from `generate-summary.js`, a Netlify function that called Haiku to generate an initial HTML itinerary stub from the trip title and dates. Since the trip has no content at creation time, the output was always identical — a heading, a date range, and "No details added yet."
 
 **Fix:** Deleted `generate-summary.js`. `CreateTripPage.jsx` now generates the initial stub in JavaScript code (`buildInitialHtml()`) and uploads it directly via `upload_created_html_itinerary_document`. No Claude API call needed. Eliminates one Haiku call per trip creation.
+
+### 5.19 Address Inclusion for Locations (10 April 2026)
+
+**Decision:** When adding a specific place (hotel, airport, restaurant, venue) rather than a general area (city, region), the AI should look up the address via `web_search` and include it — but only if 100% confident.
+
+**Where addresses appear:**
+- **Location description field** — stored in Vamoos, visible in the app
+- **HTML summary** — the day-by-day itinerary document includes confirmed addresses in the relevant day's entry
+
+**Guardrail:** Both the LOCATION rule and the HTML summary generation instructions explicitly state: *"Do not include addresses you are not 100% sure are correct."* This builds on the existing "Do not hallucinate" section in the system prompt.
 
 ---
 
@@ -292,7 +319,7 @@ Fixed to `master` + `claude/**`.
 
 ---
 
-## 7. Current State (9 April 2026)
+## 7. Current State (10 April 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -322,12 +349,14 @@ Fixed to `master` + `claude/**`.
 - ✅ `/upload` endpoint (`handleUpload`) standardised — only `reference_code` required in FormData; all itinerary data fetched internally
 - ✅ `generate-summary.js` removed — initial HTML stub generated in code, no Haiku call on trip creation
 - ✅ Cloudflare Worker deploy unblocked — `migrations` block removed from `wrangler.jsonc`
+- ✅ Location chronological ordering — AI determines correct position via `visit_datetime` and splice-inserts (see §5.16)
+- ✅ Drag-and-drop location reordering in TripPage Locations tab (`react-beautiful-dnd`)
+- ✅ Address lookup for specific places (hotels, restaurants, venues) — included in location description and HTML summary when confident
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
 - No auth on MCP server (by design — the MCP server is an internal bridge, not user-facing)
 - Per-user trip filtering uses Netlify Blobs (pending Vamoos API filter investigation)
-- Locations added in conversation order, not chronological travel order — design agreed, implementation pending (see §5.16 and TODO)
 
 ---
 
@@ -404,4 +433,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 9 April 2026*
+*Document generated 18 March 2026 — updated through 10 April 2026*
