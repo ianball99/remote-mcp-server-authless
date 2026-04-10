@@ -286,6 +286,24 @@ The HTML itinerary summary is always uploaded with `document_name: "Trip Summary
 
 ---
 
+### 5.20 Debug Mode Toggle — Show/Hide Tool Calls in Chat (10 April 2026)
+
+**Problem:** The chatbot displays tool call cards (name, status, input/result) inline in every assistant message. This is useful for developers but noisy for non-technical users.
+
+**Decision:** Added a Settings panel toggle: **Debug mode** (tool calls shown) vs **Standard mode** (tool calls hidden). Default is Standard.
+
+**Implementation (all in `ChatPanel.jsx`):**
+- New localStorage key `vamoos_debug_mode` (`"true"` / `"false"`, default `false`)
+- `Bubble` component accepts `showToolCalls` prop — conditionally renders `ToolCallCard` components and adjusts spacing
+- Message list skips rendering tool-call-only messages (no text) in Standard mode to prevent empty bubbles
+- `SettingsPanel` has a toggle switch (immediate effect, no Save button needed for the boolean)
+
+**What doesn't change:** The `apiHistory` and `runLoop` are completely unaffected. `tool_use` and `tool_result` blocks are always sent to the Anthropic API regardless of display mode — the API requires them for the agentic loop to function. This is purely a UI-level change.
+
+**Will this reduce token usage?** No. Token usage is determined by the API conversation history, which always includes tool blocks. Hiding them from the UI has zero effect on API payloads.
+
+---
+
 ## 6. Blind Alleys and Mistakes to Avoid
 
 ### 6.1 ❌ pdf-lib for PDF Generation
@@ -352,6 +370,8 @@ Fixed to `master` + `claude/**`.
 - ✅ Location chronological ordering — AI determines correct position via `visit_datetime` and splice-inserts (see §5.16)
 - ✅ Drag-and-drop location reordering in TripPage Locations tab (`react-beautiful-dnd`)
 - ✅ Address lookup for specific places (hotels, restaurants, venues) — included in location description and HTML summary when confident
+
+- ✅ Debug mode toggle in Settings — show/hide tool call cards in chat (Standard mode default, persists in localStorage)
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
