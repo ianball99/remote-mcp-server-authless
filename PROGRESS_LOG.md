@@ -4,6 +4,43 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 10 April 2026
+
+### Location chronological ordering — implemented (both repos)
+
+**Goal:** Locations added via the chatbot should appear in chronological travel order (e.g. departure airport → hotel → restaurant → return airport), not conversation order.
+
+**Original plan (8 April):** Store `visit_date` per location in Netlify Blobs, sort, and re-POST. **Actual approach:** Simpler — let the AI determine the correct insertion position and splice-insert at that index. No external state needed.
+
+**MCP server (`remote-mcp-server-authless`, branch `claude/order-locations-by-datetime-QrIF8`):**
+- `add_location_to_itinerary` tool: added optional `position` parameter (integer, 0-based) to Zod schema
+- Handler: when `position` is provided, the new location is spliced into the existing `locations` array at that index (`locations.splice(position, 0, newLocation)`) rather than appended
+- Backwards-compatible: when `position` is omitted, location is appended as before
+
+**Chatbot (`claude-code-chatbot-v1`, branch `claude/order-locations-by-datetime-QrIF8`):**
+
+*System prompt (`chat.js`):*
+- New "Managing locations (chronological order)" section instructs Claude to:
+  1. Determine a `visit_datetime` for each new location (departure time for airports, check-in for hotels, visit date for activities)
+  2. Compare against existing locations' known visit times
+  3. Pass the correct `position` value to `add_location_to_itinerary`
+- `add_location_to_itinerary` tool schema: added optional `position` parameter
+- LOCATION rule: added instruction to look up addresses for specific places (hotels, restaurants, venues) via `web_search` and include in location description — only if 100% confident
+- HTML summary generation: added instruction to include confirmed addresses in each day's entry
+
+*Proxy (`mcp-tool.js`):*
+- Passes `position` argument through to the MCP server when present in Claude's tool call args
+
+*Frontend (`TripPage.jsx`):*
+- Locations tab: added drag-and-drop reordering via `react-beautiful-dnd`
+- When a location is dragged to a new position, the reordered `locations` array is POSTed to Vamoos via `update_itinerary`
+- Provides manual override if the AI places a location incorrectly
+
+**Documentation:** `DESIGN_DOC.md` updated — §5.16 rewritten (was "not yet implemented", now documents actual approach), new §5.19 for address inclusion, §7 updated (3 new ✅ items, removed location ordering from Known Limitations).
+
+---
+
+
 ## 9 April 2026
 
 ### Standardise itinerary API usage — both repos
