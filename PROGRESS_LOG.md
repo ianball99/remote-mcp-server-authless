@@ -4,6 +4,30 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 10 April 2026 (session 2)
+
+### Debug mode toggle — chatbot UI (`claude-code-chatbot-v1`, branch `claude/add-debug-mode-toggle-bezac`)
+
+**Goal:** Let users toggle between seeing tool call cards in chat (Debug mode) and a clean view without them (Standard mode).
+
+**Problem:** Tool call cards (tool name, status badge, collapsible input/result) are shown inline in every assistant message. Useful for developers, noisy for non-technical users.
+
+**Implementation (all in `ChatPanel.jsx`):**
+- New `vamoos_debug_mode` localStorage key (default `false` = Standard mode)
+- `debugMode` state + `saveDebugMode()` function — same pattern as existing `workerUrl`
+- `SettingsPanel`: new toggle switch at top of modal — "Debug — tool calls shown" / "Standard — tool calls hidden". Takes effect immediately (no Save button needed for boolean)
+- `Bubble` component: new `showToolCalls` prop gates `ToolCallCard` rendering and `marginTop` spacing
+- Message list: skips rendering assistant messages that have only `toolCalls` and no `text` when in Standard mode (prevents empty gray bubbles from intermediate tool-call-only messages in `runLoop`)
+
+**What's NOT changed:** `runLoop`, `apiHistory`, `callChat`, API communication — all untouched. `tool_use`/`tool_result` blocks are always sent to Claude regardless of display mode. The toggle is purely UI-level.
+
+**Token usage impact:** None. The Anthropic API requires tool blocks in conversation history for the agentic loop to function. Hiding them from the UI does not reduce tokens.
+
+**Documentation:** `DESIGN_DOC.md` updated — new §5.20, new ✅ in §7.
+
+---
+
+
 ## 10 April 2026
 
 ### Location chronological ordering — implemented (both repos)
