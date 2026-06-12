@@ -26,9 +26,17 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VAMOOS_API_TOKEN: ${{ secrets.VAMOOS_API_TOKEN }}
 
+      - name: Push Connect secret to Cloudflare
+        run: echo "$CONNECT_API_KEY" | npx wrangler secret put CONNECT_API_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CONNECT_API_KEY: ${{ secrets.CONNECT_API_KEY }}
+
       - name: Deploy
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VAMOOS_API_TOKEN: ${{ secrets.VAMOOS_API_TOKEN }}
+          CONNECT_API_KEY: ${{ secrets.CONNECT_API_KEY }}
