@@ -4,6 +4,7 @@ import puppeteer from "@cloudflare/puppeteer";
 import { z } from "zod";
 
 const VAMOOS_BASE_URL = "https://live.vamoos.com/v3";
+const CONNECT_BASE_URL = "https://connect.vamoos.com/api";
 const OPERATOR_CODE = "alisdair";
 
 function parseGpx(gpxContent: string): { latitude: string; longitude: string; waypoints: Array<{ latitude: string; longitude: string }> } {
@@ -1539,6 +1540,101 @@ export class VamoosMCP extends McpAgent<Env> {
 						content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
 					};
 				}
+			},
+		);
+
+		// Search the Vamoos Connect venue database (hotels, hostels, B&Bs, villas, etc.).
+		// Uses the Connect API (connect.vamoos.com) with Bearer auth — different from the
+		// legacy X-User-Access-Token used by the itinerary tools above.
+		this.server.tool(
+			"find_venues",
+			"Search the Vamoos Connect venue database (hotels, hostels, B&Bs, villas, etc.). Returns matching venues with id, name, address, coordinates, star rating, classification and a short description. Supports free-text search, country, geographic radius, and facility/classification/star filters. All parameters are optional — call with no arguments to return the first page.",
+			{
+				query: z.string().optional().describe("Free-text search query (e.g. a venue name like 'London Hilton')"),
+				country: z.string().length(2).optional().describe("ISO 3166 two-letter country code (e.g. GB, US, NO)"),
+				latitude: z.number().min(-90).max(90).optional().describe("Latitude — use together with longitude and radius to limit the search geographically"),
+				longitude: z.number().min(-180).max(180).optional().describe("Longitude — use together with latitude and radius to limit the search geographically"),
+				radius: z.number().min(10).max(50000).optional().describe("Search radius in metres (10–50000). Must be used together with latitude and longitude"),
+				has_images: z.boolean().optional().describe("When true, only return venues that have images"),
+				in_portfolio: z.boolean().optional().describe("When true, only return venues in the current company's portfolio"),
+				facilities: z.array(z.string().min(1)).optional().describe("Facility labels the venue must have (e.g. 'WiFi', 'Pool'). All listed facilities are required"),
+				classifications: z
+					.array(z.enum(["hotel", "hostel", "bed_and_breakfast", "villa", "non_accommodation"]))
+					.optional()
+					.describe("Venue accommodation types to include"),
+				stars: z.array(z.number().int().min(1).max(5)).optional().describe("Star ratings to include (1–5)"),
+				ids: z.array(z.string().uuid()).optional().describe("Restrict results to these venue IDs"),
+				owner_id: z.string().uuid().optional().describe("Filter to venues owned by this company ID"),
+				order_by: z.enum(["updatedAt"]).optional().describe("Column to order results by"),
+				page: z.number().int().min(1).max(100).optional().describe("Page number for pagination (1-indexed, default 1)"),
+				per_page: z.number().int().min(1).max(100).optional().describe("Results per page (1–100, default 10)"),
+			},
+			async ({ query, country, latitude, longitude, radius, has_images, in_portfolio, facilities, classifications, stars, ids, owner_id, order_by, page, per_page }) => {
+				// Guard: the radius filter is only meaningful alongside a coordinate centre.
+				if (radius !== undefined && (latitude === undefined || longitude === undefined)) {
+					return { content: [{ type: "text", text: "Error: 'radius' must be used together with 'latitude' and 'longitude'." }] };
+				}
+
+				const params = new URLSearchParams();
+				if (query !== undefined) params.set("q", query);
+				if (country !== undefined) params.set("country", country);
+				if (latitude !== undefined) params.set("lat", String(latitude));
+				if (longitude !== undefined) params.set("lon", String(longitude));
+				if (radius !== undefined) params.set("radius", String(radius));
+				if (has_images !== undefined) params.set("hasImages", String(has_images));
+				if (in_portfolio !== undefined) params.set("inPortfolio", String(in_portfolio));
+				// Array filters use repeated query keys (style: form, explode: true).
+				if (facilities !== undefined) for (const f of facilities) params.append("facilities", f);
+				if (classifications !== undefined) for (const c of classifications) params.append("classifications", c);
+				if (stars !== undefined) for (const s of stars) params.append("stars", String(s));
+				if (ids !== undefined) for (const id of ids) params.append("ids", id);
+				if (owner_id !== undefined) params.set("ownerId", owner_id);
+				if (order_by !== undefined) params.set("orderBy", order_by);
+				params.set("pageNumber", String(page ?? 1));
+				params.set("pageSize", String(per_page ?? 10));
+
+				const response = await fetch(`${CONNECT_BASE_URL}/venues?${params}`, {
+					method: "GET",
+					headers: {
+						Accept: "application/json",
+						Authorization: `Bearer ${this.env.CONNECT_API_KEY}`,
+						"x-operator-code": OPERATOR_CODE,
+					},
+				});
+
+				const data = await safeJson(response);
+
+				if (!response.ok) {
+					return { content: [{ type: "text", text: `Error ${response.status}: ${JSON.stringify(data, null, 2)}` }] };
+				}
+
+				// Trim the payload to keep responses token-light: drop longDescription and raw image arrays.
+				const result = data as { pageNumber?: number; pageSize?: number; hasMore?: boolean; items?: Array<Record<string, unknown>> };
+				const items = Array.isArray(result.items) ? result.items : [];
+				const summary = {
+					pageNumber: result.pageNumber,
+					pageSize: result.pageSize,
+					hasMore: result.hasMore,
+					count: items.length,
+					venues: items.map(v => ({
+						id: v.id,
+						name: v.name,
+						classification: v.classification,
+						stars: v.stars,
+						address: v.address,
+						country: v.country,
+						latitude: v.latitude,
+						longitude: v.longitude,
+						description: v.description,
+						url: v.url,
+						bookingUrl: v.bookingUrl,
+						phone: v.phone,
+						email: v.email,
+						imageCount: Array.isArray(v.imageIds) ? v.imageIds.length : 0,
+					})),
+				};
+
+				return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
 			},
 		);
 	}

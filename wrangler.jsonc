@@ -22,5 +22,5 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
-	"secrets": ["VAMOOS_API_TOKEN"]
+	"secrets": ["VAMOOS_API_TOKEN", "CONNECT_API_KEY"]
 }
