@@ -4,6 +4,32 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 14 June 2026
+
+### `find_venues` MCP tool — Connect venue search (`remote-mcp-server-authless`, branch `claude/keen-shannon-u9purx`)
+
+**Goal:** Add a new MCP tool that searches the Vamoos **Connect** venue database (hotels, hostels, B&Bs, villas), as the first step toward enriching trips with real venue details. Chatbot wiring deferred to a later session.
+
+**Connect API onboarding:**
+- Connect is a separate platform: base URL `https://connect.vamoos.com/api`, **Bearer** auth (`Authorization: Bearer <key>`) — different from the legacy `X-User-Access-Token`.
+- New `CONNECT_API_KEY` secret. Set via CI: added a "Push Connect secret to Cloudflare" step to `deploy.yml` mirroring the `VAMOOS_API_TOKEN` step (`wrangler secret put`), plus a GitHub Actions repo secret `CONNECT_API_KEY`.
+- **Gotcha — dashboard deploy fails with the Browser binding:** setting a secret via the Cloudflare dashboard triggers a *versioned* deploy, which rejects the Puppeteer `BROWSER` binding (`binding BROWSER of type browser cannot use version 1`). The CLI path (`wrangler secret put` + `wrangler deploy`) used by CI is unaffected. Lesson: set secrets via CLI/CI, not the dashboard, on this Worker.
+- Confirmed `GET /venues` 403s with `company_access_required` until `x-operator-code: alisdair` is sent. Verified via `GET /users/me` that the key's company slug is `alisdair` (same as legacy `OPERATOR_CODE`).
+
+**Implementation (`src/index.ts`, `worker-configuration.d.ts`, `wrangler.jsonc`):**
+- Added `CONNECT_BASE_URL` constant and the `find_venues` tool (read-only).
+- Exposes **all** `GET /venues` filters as optional Zod params: `query`, `country`, `latitude`/`longitude`/`radius`, `has_images`, `in_portfolio`, `facilities[]`, `classifications[]`, `stars[]`, `ids[]`, `owner_id`, `order_by`, `page`, `per_page`. Array filters sent as repeated query keys. Guard: `radius` requires `latitude`+`longitude`.
+- Returns a trimmed summary per venue (id, name, classification, stars, address, country, coords, description, url, bookingUrl, phone, email, imageCount) — drops `longDescription` and raw image arrays for token economy.
+- Added `CONNECT_API_KEY` to the `Env` type and the `wrangler.jsonc` secrets list.
+
+**Verification:** `tsc --noEmit` clean. Pushed to `claude/keen-shannon-u9purx` (auto-deploy). Live `tools/call` against the deployed `/mcp` endpoint returned correct results (`q="london hilton"`, `country="GB"` → London Hilton on Park Lane + others).
+
+**Docs:** `DESIGN_DOC.md` updated — new §5.21, `find_venues` row in §4, ✅ in §7 (state date → 14 June 2026).
+
+**Not done (next session):** chatbot wiring — add `find_venues` to `chat.js` `TOOLS` + system-prompt usage rules; decide which subset of filters the bot uses. Consider a `get_venue_details` tool for the full record.
+
+---
+
 ## 10 April 2026 (session 2)
 
 ### Debug mode toggle — chatbot UI (`claude-code-chatbot-v1`, branch `claude/add-debug-mode-toggle-bezac`)

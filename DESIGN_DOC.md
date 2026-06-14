@@ -95,6 +95,7 @@ The MCP tool definitions for these upload tools exist (so Claude knows what para
 | `add_flight_to_itinerary` | Look up flight via carrier/number/airports/date, attach via `flight_ids` |
 | `add_location_to_itinerary` | Add a standalone location (no POI) — only needed when no POI is being added |
 | `add_person_to_itinerary` | Add a traveller (name + email) to an itinerary; preserves existing travellers; deduplicates by email |
+| `find_venues` | Search the Vamoos **Connect** venue database (hotels, hostels, B&Bs, villas) — read-only; Bearer auth; exposes all `GET /venues` filters (see §5.21) |
 | `upload_document` | Upload user-supplied file (base64) or HTML→PDF conversion |
 | `legacy_upload_created_itinerary_document` | **Deprecated** — markdown→PDF via Puppeteer, kept for reference |
 
@@ -304,6 +305,25 @@ The HTML itinerary summary is always uploaded with `document_name: "Trip Summary
 
 ---
 
+### 5.21 `find_venues` — Connect Venue Search (14 June 2026)
+
+**Goal:** Let the MCP server search the Vamoos **Connect** venue database (hotels, hostels, B&Bs, villas) so the chatbot can later enrich trips with real venue details (address, coordinates, stars, description).
+
+**Connect is a separate platform from the legacy Vamoos API.** Key differences baked into the tool:
+- **Base URL:** `https://connect.vamoos.com/api` (constant `CONNECT_BASE_URL`), not `live.vamoos.com/v3`.
+- **Auth:** standard `Authorization: Bearer <key>` — **not** the legacy `X-User-Access-Token` header. The key lives in the `CONNECT_API_KEY` Cloudflare secret (see §5.5 pattern), surfaced via `env.CONNECT_API_KEY`.
+- **Company context:** the request 403s with `company_access_required` unless `x-operator-code` is sent. The existing `OPERATOR_CODE` constant (`alisdair`) is the correct slug — confirmed via `GET /users/me` (the key's company is "Alisdair", slug `alisdair`).
+
+**Endpoint:** `GET /venues`. The tool exposes **every** documented filter as an optional Zod field: `query`→`q`, `country`, `latitude`→`lat`, `longitude`→`lon`, `radius`, `has_images`→`hasImages`, `in_portfolio`→`inPortfolio`, `facilities[]`, `classifications[]` (`hotel`/`hostel`/`bed_and_breakfast`/`villa`/`non_accommodation`), `stars[]` (1–5), `ids[]`, `owner_id`→`ownerId`, `order_by`→`orderBy`, `page`→`pageNumber`, `per_page`→`pageSize`. Array filters are sent as repeated query keys (OpenAPI `style: form, explode: true`). A guard rejects `radius` supplied without `latitude`+`longitude`.
+
+**Output is trimmed, not raw.** The handler returns `{ pageNumber, pageSize, hasMore, count, venues[] }` where each venue keeps `id`, `name`, `classification`, `stars`, `address`, `country`, `latitude`, `longitude`, `description`, `url`, `bookingUrl`, `phone`, `email`, and `imageCount`. The large `longDescription` HTML and raw `imageIds`/`images` arrays are **dropped** to keep tool responses token-light. (A future `get_venue_details` tool would be the place to expose the full record.)
+
+**Read-only.** `find_venues` never writes to Connect or to any itinerary — it is purely a search. Chatbot wiring (tool definition + system-prompt usage rules) is deliberately **not** done yet; that is a separate session.
+
+**Disambiguation note:** a bare name like "london hilton" returns ~10+ valid properties, so the chatbot layer will need to pass `country`/geo to narrow, or present options and ask. This is a chatbot-side concern, not handled in the tool.
+
+---
+
 ## 6. Blind Alleys and Mistakes to Avoid
 
 ### 6.1 ❌ pdf-lib for PDF Generation
@@ -337,7 +357,7 @@ Fixed to `master` + `claude/**`.
 
 ---
 
-## 7. Current State (10 April 2026)
+## 7. Current State (14 June 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -372,6 +392,7 @@ Fixed to `master` + `claude/**`.
 - ✅ Address lookup for specific places (hotels, restaurants, venues) — included in location description and HTML summary when confident
 
 - ✅ Debug mode toggle in Settings — show/hide tool call cards in chat (Standard mode default, persists in localStorage)
+- ✅ `find_venues` MCP tool — searches the Connect venue database (`GET /venues`, Bearer + `x-operator-code`), all filters exposed, trimmed output; deployed and verified live (see §5.21). **Not yet wired into the chatbot.**
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
