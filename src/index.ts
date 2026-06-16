@@ -208,7 +208,8 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 			}
 		} else if (key === "locations") {
 			// location_read includes id, itinerary_id, country, country_iso, timezone, created_at, updated_at
-			// location_write only accepts name, latitude, longitude, description, icon_id (additionalProperties: false)
+			// location_write accepts name, latitude, longitude, description, icon_id and meta
+			// (meta carries e.g. connect_id linking a location to a Connect venue — confirmed persisted by Vamoos)
 			const locs = existing[key];
 			if (Array.isArray(locs) && locs.length > 0) {
 				out[key] = locs.map((loc: unknown) => {
@@ -216,6 +217,7 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 					const w: Record<string, unknown> = { name: l.name, latitude: l.latitude, longitude: l.longitude };
 					if (l.description !== undefined) w.description = l.description;
 					if (l.icon_id !== undefined) w.icon_id = l.icon_id;
+					if (l.meta !== undefined) w.meta = l.meta;
 					return w;
 				});
 			}
