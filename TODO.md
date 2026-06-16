@@ -12,7 +12,7 @@ _Nothing currently in progress._
 ## Priority
 
 - [ ] **Priority 1 — Investigate `create_itinerary` field options** — Check whether person/traveller fields can be passed at creation time to collapse the two-step `create_itinerary` + `add_person_to_itinerary` flow into one call
-- [ ] **Priority 2 — Connect Hotels API** — Integrate a hotels API to allow hotel search and booking within itineraries
+- [x] **Priority 2 — Connect Hotels API** — Done 16 June 2026. `find_venues` (search) + `add_venue_location_to_itinerary` (add to map with `meta.connect_id` link) MCP tools, full chatbot wiring (Connect-first lookup, confirm-before-write, enrich HTML), and the `pickWritable` `meta` round-trip fix. Verified live end-to-end. See DESIGN_DOC §5.21 / §5.22 and the 16 June 2026 PROGRESS_LOG entry. Booking flow itself not built (out of scope — `bookingUrl` is surfaced in results).
 
 ## Investigate
 
@@ -31,6 +31,10 @@ _Nothing currently in progress._
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify fetch-then-merge is correct (pois array must be merged, not overwritten)
 - [ ] Check GPX track and POI visibility settings — confirm `is_default_on`, `poi_range`, and `type` values with Alisdair
 - [ ] Rework `upload_created_html_itinerary_document` to support a retrieve-edit-replace flow
+- [ ] **16 June 2026 — `get_venue_details` tool (deferred)** — `GET /venues/{id}` for the full Connect record (`longDescription`, image arrays) that `find_venues` trims. Build if the bot needs richer venue copy than the search summary provides.
+- [ ] **16 June 2026 — Connect Discovery for unknown venues (deferred)** — `POST /venues/discovery` (async 202 + poll `GET /venues/{id}` until `isProcessing=false`) to build a venue not yet in inventory. Deferred — adds polling complexity to the synchronous chat loop.
+- [ ] **16 June 2026 — Optional prompt tidy-up** — the "LOCATION (standalone)" SYSTEM clause still names hotels/venues and points at `web_search`; the new "Hotels & venues" section supersedes it for venues. Tighten for clarity (not required for correctness — the model already selects `add_venue_location_to_itinerary`).
+- [ ] **16 June 2026 — Re-add venues on pre-fix trips** — trips where a venue was added before the §5.22 `meta` fix have a location with `meta = {}` (link lost). Re-add the venue to restore the Connect link. One-off, low priority.
 
 ## Completed
 
