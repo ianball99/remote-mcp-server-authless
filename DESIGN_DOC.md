@@ -96,6 +96,7 @@ The MCP tool definitions for these upload tools exist (so Claude knows what para
 | `add_location_to_itinerary` | Add a standalone location (no POI) — only needed when no POI is being added |
 | `add_person_to_itinerary` | Add a traveller (name + email) to an itinerary; preserves existing travellers; deduplicates by email |
 | `find_venues` | Search the Vamoos **Connect** venue database (hotels, hostels, B&Bs, villas) — read-only; Bearer auth; exposes all `GET /venues` filters (see §5.21) |
+| `add_venue_location_to_itinerary` | Add a Connect venue (from `find_venues`) to a trip as a map location, stamped with `meta.connect_id` linking back to the venue record; venue address becomes the location description (see §5.22) |
 | `upload_document` | Upload user-supplied file (base64) or HTML→PDF conversion |
 | `legacy_upload_created_itinerary_document` | **Deprecated** — markdown→PDF via Puppeteer, kept for reference |
 
@@ -318,9 +319,29 @@ The HTML itinerary summary is always uploaded with `document_name: "Trip Summary
 
 **Output is trimmed, not raw.** The handler returns `{ pageNumber, pageSize, hasMore, count, venues[] }` where each venue keeps `id`, `name`, `classification`, `stars`, `address`, `country`, `latitude`, `longitude`, `description`, `url`, `bookingUrl`, `phone`, `email`, and `imageCount`. The large `longDescription` HTML and raw `imageIds`/`images` arrays are **dropped** to keep tool responses token-light. (A future `get_venue_details` tool would be the place to expose the full record.)
 
-**Read-only.** `find_venues` never writes to Connect or to any itinerary — it is purely a search. Chatbot wiring (tool definition + system-prompt usage rules) is deliberately **not** done yet; that is a separate session.
+**Read-only.** `find_venues` never writes to Connect or to any itinerary — it is purely a search. **Chatbot wiring completed 16 June 2026** (see §5.22).
 
-**Disambiguation note:** a bare name like "london hilton" returns ~10+ valid properties, so the chatbot layer will need to pass `country`/geo to narrow, or present options and ask. This is a chatbot-side concern, not handled in the tool.
+**Disambiguation note:** a bare name like "london hilton" returns ~10+ valid properties, so the chatbot layer passes `country`/geo to narrow, or presents options and asks. This is a chatbot-side concern, not handled in the tool.
+
+---
+
+### 5.22 Venue → Map Location with Connect Link, and the `meta` Round-Trip Fix (16 June 2026)
+
+**Goal:** when the user confirms a venue found via `find_venues`, add it to the trip map **and** keep a durable link back to its Connect record so the portal can show the venue.
+
+**`add_venue_location_to_itinerary` (MCP server):** a clone of `add_location_to_itinerary` (same fetch-then-merge + `position` insertion), with one extra **required** param `connect_id` (UUID, the venue's `id`). The merged location object is stamped with `meta: { connect_id }`, and the venue `address` is stored as the location `description`. `latitude`/`longitude` accept `string | number` (find_venues returns numbers) and coerce to string. `visit_datetime` is **not** an MCP param — it stays client-side, same as `add_location_to_itinerary`.
+
+**Chatbot wiring (`claude-code-chatbot-v1`):**
+- `chat.js` `TOOLS`: added `find_venues` (subset of filters — `query`, `country`, `latitude`/`longitude`/`radius`, `classifications`) and `add_venue_location_to_itinerary`.
+- `chat.js` `SYSTEM`: new "Hotels & venues" section — on a hotel mention, look up in Connect **first** (before `web_search`); disambiguate by country/geo; **confirm before writing**; on confirm, enrich the HTML and call `add_venue_location_to_itinerary`; use it (not `add_location_to_itinerary`) for venues; never invent a `connect_id`.
+- `mcp-tool.js`: `visit_datetime` added to `CLIENT_ONLY_FIELDS` for the venue tool (stripped before the MCP call; Vamoos rejects it).
+- `TripPage.jsx`: venue tool added to `mutatingTools`; the location blob-sync now covers both location tools and preserves `connect_id`.
+
+**The `meta` round-trip bug (critical — same class as §5.10).** `pickWritable` rebuilt each **existing** location keeping only `name`/`latitude`/`longitude`/`description`/`icon_id` and **dropped `meta`**. So although the venue add saved `meta.connect_id` correctly, the **next** itinerary POST (e.g. the bot re-generating the Trip Summary HTML, or any later edit) did GET → `pickWritable` → POST and **wiped the connect link**. A direct single add looked fine; the link only vanished after a follow-up save — which is why it passed the first isolated test but failed through the live chatbot flow.
+
+**Fix:** preserve `meta` in `pickWritable`'s locations mapping (`if (l.meta !== undefined) w.meta = l.meta;`). Confirmed safe and correct: Vamoos's `location_write` **does** accept and persist `meta` (the venue POST returns 200 with `meta.connect_id` intact). Verified live by adding a venue, then triggering a second save (`add_person_to_itinerary`), then re-fetching — `meta.connect_id` survived. The old "`location_write` only accepts name/lat/lon/description/icon_id (additionalProperties: false)" comment was stale.
+
+**Lesson (reinforces §5.10):** any read-only field that Vamoos round-trips on a location/POI/traveller must be carried through `pickWritable`, or it will be silently erased on the next fetch-then-merge save — not on the write that set it.
 
 ---
 
@@ -392,7 +413,8 @@ Fixed to `master` + `claude/**`.
 - ✅ Address lookup for specific places (hotels, restaurants, venues) — included in location description and HTML summary when confident
 
 - ✅ Debug mode toggle in Settings — show/hide tool call cards in chat (Standard mode default, persists in localStorage)
-- ✅ `find_venues` MCP tool — searches the Connect venue database (`GET /venues`, Bearer + `x-operator-code`), all filters exposed, trimmed output; deployed and verified live (see §5.21). **Not yet wired into the chatbot.**
+- ✅ `find_venues` MCP tool — searches the Connect venue database (`GET /venues`, Bearer + `x-operator-code`), all filters exposed, trimmed output; deployed and verified live (see §5.21)
+- ✅ `add_venue_location_to_itinerary` MCP tool + full chatbot wiring — venue mentions are looked up in Connect, confirmed, added to the map with a `meta.connect_id` link, and reflected in the HTML summary; includes the `pickWritable` `meta` round-trip fix so the link survives later saves (see §5.22)
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only

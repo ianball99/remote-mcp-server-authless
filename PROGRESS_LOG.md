@@ -4,6 +4,34 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 16 June 2026
+
+### Connect venues — finish the feature: venue→map location, chatbot wiring, and a `meta` round-trip fix
+
+Branch `claude/elegant-johnson-hbs5mi` on both repos. Continued from `VENUES_HANDOFF.md`.
+
+**New MCP tool `add_venue_location_to_itinerary` (`remote-mcp-server-authless`):**
+- Clone of `add_location_to_itinerary` (fetch-then-merge + `position` insertion) with a required `connect_id` (UUID). Stamps the location with `meta: { connect_id }` and uses the venue `address` as the `description`. `lat`/`lon` accept `string|number` and coerce. Verified live end-to-end via direct `tools/call` (London Hilton on Park Lane → location with `description`=address and `meta.connect_id`; existing locations preserved).
+
+**Chatbot wiring (`claude-code-chatbot-v1`):**
+- `chat.js`: added `find_venues` (subset — query/country/geo/classifications) and `add_venue_location_to_itinerary` tool defs; new "Hotels & venues" SYSTEM section (Connect-first lookup, disambiguate, **confirm before writing**, enrich HTML + add map location, never invent `connect_id`).
+- `mcp-tool.js`: `visit_datetime` stripped as client-only for the venue tool.
+- `TripPage.jsx`: venue tool added to `mutatingTools`; blob-sync covers both location tools and keeps `connect_id`.
+- `package-lock.json`: synced the previously-missing `@netlify/blobs` dependency.
+
+**Bug found & fixed — `meta.connect_id` wiped on subsequent saves (DESIGN_DOC §5.22):**
+- Symptom: through the live bot the venue was added but the portal showed no Connect link, even though the model called `add_venue_location_to_itinerary` with a valid `connect_id`. The stored location had the address (`description`) but `meta = {}`, and the trip was several versions on.
+- Root cause: `pickWritable` rebuilt existing locations without `meta`, so the **next** itinerary POST (the bot re-generating the Trip Summary HTML) erased the link. The first isolated curl test passed because nothing re-saved afterwards.
+- Fix: carry `meta` through in `pickWritable`'s locations mapping. Vamoos accepts/persists `meta` on `location_write` (200 + round-trip). Verified live: add venue → `add_person_to_itinerary` (second save) → re-fetch → `meta.connect_id` survived.
+
+**Tool-selection note:** the model did pick the right tool; an earlier hypothesis that competing prompt rules (the "LOCATION (standalone)" clause naming hotels) caused it to use `add_location_to_itinerary` was wrong. Left as a possible future prompt tidy-up, not needed for correctness.
+
+**Verification:** `tsc --noEmit` clean (worker); `vite build` clean + `node --check` on functions (chatbot). Worker auto-deploys #148 (tool) and #149 (meta fix) succeeded; Netlify branch deploy for the chatbot. Both `claude/elegant-johnson-hbs5mi` branches merged to root (`master`/`main`) and deleted at session end.
+
+**Left on test trip `trip20260330064734`:** a duplicate "Hilton London Green Park" location and a "Meta Test" traveller from the live verification — harmless test data.
+
+---
+
 ## 14 June 2026
 
 ### `find_venues` MCP tool — Connect venue search (`remote-mcp-server-authless`, branch `claude/keen-shannon-u9purx`)

@@ -208,7 +208,8 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 			}
 		} else if (key === "locations") {
 			// location_read includes id, itinerary_id, country, country_iso, timezone, created_at, updated_at
-			// location_write only accepts name, latitude, longitude, description, icon_id (additionalProperties: false)
+			// location_write accepts name, latitude, longitude, description, icon_id and meta
+			// (meta carries e.g. connect_id linking a location to a Connect venue — confirmed persisted by Vamoos)
 			const locs = existing[key];
 			if (Array.isArray(locs) && locs.length > 0) {
 				out[key] = locs.map((loc: unknown) => {
@@ -216,6 +217,7 @@ function pickWritable(existing: Record<string, unknown>): Record<string, unknown
 					const w: Record<string, unknown> = { name: l.name, latitude: l.latitude, longitude: l.longitude };
 					if (l.description !== undefined) w.description = l.description;
 					if (l.icon_id !== undefined) w.icon_id = l.icon_id;
+					if (l.meta !== undefined) w.meta = l.meta;
 					return w;
 				});
 			}
@@ -1329,6 +1331,87 @@ export class VamoosMCP extends McpAgent<Env> {
 					];
 
 					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing locations=${existingLocations.length} → inserted at index ${insertIdx} → merged=${mergedLocations.length}`);
+
+					// Step 2: POST itinerary with merged locations
+					const itinPayload: Record<string, unknown> = {
+						...writableExisting,
+						vamoos_id,
+						departure_date,
+						return_date,
+						locations: mergedLocations,
+					};
+
+					log.push(`[2/2] POST ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+
+					const itinResponse = await fetch(
+						`${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Accept: "application/json",
+								"X-Operator-Code": OPERATOR_CODE,
+								"X-User-Access-Token": this.env.VAMOOS_API_TOKEN,
+							},
+							body: JSON.stringify(itinPayload),
+						},
+					);
+
+					const itinData = await safeJson(itinResponse);
+					log.push(`[2/2] POST /itinerary → HTTP ${itinResponse.status}\n${JSON.stringify(itinData, null, 2)}`);
+
+					if (!itinResponse.ok) {
+						return { content: [{ type: "text", text: `=== FAILED at step 2/2 ===\n${log.join("\n\n")}` }] };
+					}
+
+					return { content: [{ type: "text", text: `=== SUCCESS ===\n${log.join("\n\n")}` }] };
+				} catch (err) {
+					log.push(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+					return { content: [{ type: "text", text: `=== EXCEPTION ===\n${log.join("\n\n")}` }] };
+				}
+			},
+		);
+
+		// Add a location sourced from the Vamoos Connect venue database (see find_venues).
+		// Identical fetch-then-merge flow to add_location_to_itinerary, but stamps the
+		// location with meta.connect_id so it links back to the Connect venue record, and
+		// uses the venue's address as the location description.
+		this.server.tool(
+			"add_venue_location_to_itinerary",
+			"Add a Connect venue (hotel, B&B, villa, etc.) found via find_venues to a Vamoos trip as a map location. Pass the venue's name, coordinates and id (as connect_id) straight from the find_venues result; the venue address becomes the location description. The location is stamped with meta.connect_id so it links back to the Connect venue record. Uses fetch-then-merge — existing locations are preserved. Only the reference_code is needed to identify the trip.",
+			{
+				reference_code: z.string().min(1).max(64).describe("Reference code (Passcode) of the itinerary"),
+				name: z.string().min(1).max(128).describe("Venue display name (from find_venues 'name')"),
+				latitude: z.union([z.string(), z.number()]).transform(String).describe("Latitude (from find_venues 'latitude')"),
+				longitude: z.union([z.string(), z.number()]).transform(String).describe("Longitude (from find_venues 'longitude')"),
+				connect_id: z.string().uuid().describe("Connect venue id (from find_venues 'id') — stored as meta.connect_id to link the location to the venue record"),
+				address: z.string().optional().describe("Venue address (from find_venues 'address') — shown as the location description"),
+				position: z.number().int().min(0).optional().describe("Zero-based index at which to insert the location in the existing locations array. Omit to append at the end. Values past the array length are clamped to append."),
+			},
+			async ({ reference_code, name, latitude, longitude, connect_id, address, position }) => {
+				const log: string[] = [];
+				try {
+					// Step 1: Fetch existing itinerary (fetch-then-merge)
+					log.push(`[1/2] GET ${VAMOOS_BASE_URL}/itinerary/${OPERATOR_CODE}/${encodeURIComponent(reference_code)}`);
+					const existing = await fetchItinerary(reference_code, this.env.VAMOOS_API_TOKEN);
+					const writableExisting = pickWritable(existing);
+					const vamoos_id = existing.vamoos_id as number;
+					const departure_date = existing.departure_date as string;
+					const return_date = existing.return_date as string;
+
+					const existingLocations = Array.isArray(writableExisting.locations) ? writableExisting.locations as Record<string, unknown>[] : [];
+					const newLocation: Record<string, unknown> = { name, latitude, longitude, meta: { connect_id } };
+					if (address !== undefined) newLocation.description = address;
+					const insertIdx = (position !== undefined && position <= existingLocations.length)
+						? position
+						: existingLocations.length;
+					const mergedLocations = [
+						...existingLocations.slice(0, insertIdx),
+						newLocation,
+						...existingLocations.slice(insertIdx),
+					];
+
+					log.push(`[1/2] Fetched itinerary: vamoos_id=${vamoos_id}. Existing locations=${existingLocations.length} → inserted venue '${name}' (connect_id=${connect_id}) at index ${insertIdx} → merged=${mergedLocations.length}`);
 
 					// Step 2: POST itinerary with merged locations
 					const itinPayload: Record<string, unknown> = {
