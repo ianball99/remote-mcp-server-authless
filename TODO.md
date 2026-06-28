@@ -25,7 +25,6 @@ _Nothing currently in progress._
 ## Backlog
 
 - [ ] **8 Apr 2026 — Location chronological ordering** — Store `locations[]` with `visit_date` per entry in the Netlify Blobs trip index alongside `vamoos_id`. AI passes `visit_date` when calling `add_location_to_itinerary`; `mcp-tool.js` sorts all locations by date and re-POSTs sorted array to Vamoos, then updates the blob. Also eliminates the `get_itinerary` call for location adds (vamoos_id + existing locations come from blob). See 8 April 2026 PROGRESS_LOG entry for full design discussion.
-- [ ] **Look at re-adding day of week to days in HTML** — Removed from itinerary day headings (6 Apr 2026) because the AI was hallucinating incorrect day names. Consider a reliable approach (e.g. computing it server-side before passing to the AI, or post-processing the HTML).
 - [ ] **Investigate why `field3` (Name/Location) is absent from GET itinerary response**
 - [ ] **Clarify locations tab vs general tab location field**
 - [ ] Revisit `upload_gpx_and_attach_to_itinerary` — verify fetch-then-merge is correct (pois array must be merged, not overwritten)
@@ -52,3 +51,4 @@ _Nothing currently in progress._
 - [x] **Per-user trip filtering via Netlify Blobs** — `trip-index.js` function reads/writes email→trips index; `HomePage` reads from it instead of calling `list_itineraries`; `CreateTripPage` and `TripPage` write to it on trip create and person add (29 March 2026)
 - [x] **HTML itinerary transparent background + white text + Roboto font** — `SYSTEM_PROMPT.md` updated with styling guidance (1 April 2026)
 - [x] **Email OTP verification per browser** — 6-digit code via Resend (`noreply@send.infoalchemy.co.uk`), 5-min expiry, 7-day browser verification window. `send-otp.js`, `verify-otp.js`, `check-verification.js` functions added. `AuthGuard` wraps all protected routes. Verified sending domain `send.infoalchemy.co.uk` added to Resend (1 April 2026)
+- [x] **Re-add day of week to itinerary headings** — Weekdays now computed in code (client-side, `Intl`/`toLocaleDateString`) and injected into chat context as authoritative strings. System prompt guardrails prevent the model from computing weekday names itself. Eliminates the class of hallucinated day names seen after the original removal. (28 June 2026, see DESIGN_DOC §5.23)

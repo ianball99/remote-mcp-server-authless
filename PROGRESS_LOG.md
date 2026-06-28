@@ -4,6 +4,23 @@ Updated regularly throughout each session. One entry per day worked on.
 
 ---
 
+## 28 June 2026
+
+### Day-of-week fix for trip date headings — `claude-code-chatbot-v1`
+
+Branch `claude/mcp-docs-update-ouq8c6`.
+
+**Problem:** Day names shown in trip date headings (e.g. in the itinerary HTML and chat context) were being derived by the model from the date string. This is unreliable — the model was producing incorrect weekdays (e.g. showing "Thursday 26 June 2026" when the correct day is Friday).
+
+**Fix:** Weekdays are now computed in code on the client side using `Intl` / `toLocaleDateString`, then injected into the chat context as authoritative strings (e.g. `Friday 26 June 2026 (2026-06-26)`). The `chat.js` system prompt was updated with:
+- An explicit instruction to treat supplied weekdays as authoritative and **never** compute weekday names independently.
+- A rule for resolving missing years: derive from the trip's `departure_date` / `return_date` rather than guessing.
+- A rule for deriving in-trip weekdays by counting forward from the departure date when a supplied weekday is not available for a given day.
+
+No MCP server code was changed — this is entirely a chatbot-side fix. Deployed to `claude-code-chatbot-v1` on the `claude/mcp-docs-update-ouq8c6` branch. See DESIGN_DOC §5.23.
+
+---
+
 ## 16 June 2026
 
 ### Connect venues — finish the feature: venue→map location, chatbot wiring, and a `meta` round-trip fix

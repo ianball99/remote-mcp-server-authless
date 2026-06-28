@@ -1,5 +1,5 @@
 # Vamoos MCP Server — Design Document
-**Status:** Working as of 18 March 2026 (last updated 10 April 2026)
+**Status:** Working as of 18 March 2026 (last updated 28 June 2026)
 **Author:** Built in collaboration with Claude Code
 **Repo:** `ianball99/remote-mcp-server-authless`
 
@@ -82,7 +82,7 @@ The MCP tool definitions for these upload tools exist (so Claude knows what para
 ## 4. The MCP Tools
 
 | Tool | Purpose |
-|------|---------|
+|------|-------|
 | `create_itinerary` | Create a new trip in Vamoos |
 | `update_itinerary` | Update an existing trip — only `reference_code` required; all other fields optional and override the fetched values |
 | `list_itineraries` | List all trips (paginated) |
@@ -345,6 +345,25 @@ The HTML itinerary summary is always uploaded with `document_name: "Trip Summary
 
 ---
 
+### 5.23 Deterministic Day-of-Week for Trip Dates (28 June 2026)
+
+**Problem:** Day names shown for trip dates (e.g. in HTML itinerary `<h2>` headings and chat context) were being derived by the model from the date string. This is unreliable — the model was producing incorrect weekday names (e.g. showing "Thursday 26 June 2026" when the correct day is Friday).
+
+**Decision:** Weekdays are now computed in code on the client side (using `Intl` / `toLocaleDateString`) and injected into the chat context as authoritative strings (e.g. `Friday 26 June 2026 (2026-06-26)`). The model is explicitly told to treat these as ground truth and never to compute weekday names itself.
+
+**Implementation (`claude-code-chatbot-v1`, `chat.js` system prompt):**
+- Validated trip dates held client-side as full ISO strings are passed into the conversation context with the weekday already resolved in code.
+- Three guardrails added to the system prompt:
+  1. **Treat supplied weekdays as authoritative** — never compute or guess a weekday from a date string.
+  2. **Missing-year resolution** — derive the year from the trip's `departure_date` / `return_date` rather than guessing.
+  3. **In-trip weekday derivation** — for days where a pre-computed weekday is not supplied, count forward from the departure date to get the correct day name.
+
+**No MCP server changes.** This is a chatbot-side fix only; logged here for cross-repo traceability.
+
+**Trade-off:** Computing weekdays client-side adds a small amount of JS but eliminates an entire class of hallucination for a user-visible field. The system prompt guardrails ensure the model never overrides the injected values.
+
+---
+
 ## 6. Blind Alleys and Mistakes to Avoid
 
 ### 6.1 ❌ pdf-lib for PDF Generation
@@ -378,7 +397,7 @@ Fixed to `master` + `claude/**`.
 
 ---
 
-## 7. Current State (14 June 2026)
+## 7. Current State (28 June 2026)
 
 ### What Works
 - ✅ Create/update/list/get itineraries via MCP tools
@@ -411,10 +430,10 @@ Fixed to `master` + `claude/**`.
 - ✅ Location chronological ordering — AI determines correct position via `visit_datetime` and splice-inserts (see §5.16)
 - ✅ Drag-and-drop location reordering in TripPage Locations tab (`react-beautiful-dnd`)
 - ✅ Address lookup for specific places (hotels, restaurants, venues) — included in location description and HTML summary when confident
-
 - ✅ Debug mode toggle in Settings — show/hide tool call cards in chat (Standard mode default, persists in localStorage)
 - ✅ `find_venues` MCP tool — searches the Connect venue database (`GET /venues`, Bearer + `x-operator-code`), all filters exposed, trimmed output; deployed and verified live (see §5.21)
 - ✅ `add_venue_location_to_itinerary` MCP tool + full chatbot wiring — venue mentions are looked up in Connect, confirmed, added to the map with a `meta.connect_id` link, and reflected in the HTML summary; includes the `pickWritable` `meta` round-trip fix so the link survives later saves (see §5.22)
+- ✅ Day-of-week computed in code and injected into chat context — model no longer derives weekday names from date strings; system prompt guardrails prevent hallucinated day names (see §5.23)
 
 ### Known Limitations
 - Operator code (`alisdair`) hardcoded — single-tenant only
@@ -426,7 +445,7 @@ Fixed to `master` + `claude/**`.
 ## 8. File Reference
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `src/index.ts` | All server code: tools, HTTP handlers, utilities |
 | `SYSTEM_PROMPT.md` | AI interview behaviour and output instructions |
 | `wrangler.jsonc` | Cloudflare Worker config |
@@ -436,7 +455,7 @@ Fixed to `master` + `claude/**`.
 **Netlify Functions (`claude-code-chatbot-v1`):**
 
 | File | Purpose |
-|------|---------|
+|------|-------|
 | `netlify/functions/chat.js` | Main agentic loop — Claude API + tool routing |
 | `netlify/functions/mcp-tool.js` | Proxy to Cloudflare Worker MCP endpoint |
 | `netlify/functions/format-trip.js` | Claude Haiku: raw JSON → readable text for Details tab |
@@ -496,4 +515,4 @@ Netlify native GitHub integration. All branches deploy. Branch URL format: `http
 
 ---
 
-*Document generated 18 March 2026 — updated through 10 April 2026*
+*Document generated 18 March 2026 — updated through 28 June 2026*
