@@ -1682,6 +1682,8 @@ export class VamoosMCP extends McpAgent<Env> {
 						Accept: "application/json",
 						Authorization: `Bearer ${this.env.CONNECT_API_KEY}`,
 						"x-operator-code": OPERATOR_CODE,
+						// Connect's WAF blocks requests with no User-Agent as an anti-bot measure (confirmed by Vamoos support, 11 July 2026).
+						"User-Agent": "vamoos-mcp-server/1.0 (+https://github.com/ianball99/remote-mcp-server-authless)",
 					},
 				});
 
